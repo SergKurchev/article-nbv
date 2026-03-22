@@ -1,0 +1,31 @@
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment manager configurations
+.uv
+uv.lock
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyTorch and Weights
+*.pt
+*.pth
+weights/
+logs/
+
+# Optional: PyCharm/VSCode
+.idea/
+.vscode/
+
+# Ignore artifact runs except the folder structure
+runs/*/
+!runs/.gitkeep
