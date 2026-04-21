@@ -326,6 +326,8 @@ class TextureTester:
                     physicsClientId=self.client_id
                 )
 
+                print(f"Created body {body_id}: {self.object_names[i]} with {texture_type} texture at {position}")
+
                 # Apply texture
                 texture_id = self.textures[texture_type]
                 p.changeVisualShape(
@@ -345,7 +347,18 @@ class TextureTester:
                 object_count += 1
 
         self.grid_objects = grid_objects
-        print(f"Loaded {object_count} objects in grid (8 shapes × 3 textures)")
+        print(f"\n✓ Loaded {object_count} objects in grid (8 shapes × 3 textures)")
+        print(f"✓ Grid objects list has {len(self.grid_objects)} entries")
+
+        # Verify all objects still exist
+        print("\nVerifying objects exist:")
+        for i, obj_info in enumerate(self.grid_objects[:3]):  # Check first 3
+            body_id = obj_info["body_id"]
+            try:
+                pos, orn = p.getBasePositionAndOrientation(body_id, physicsClientId=self.client_id)
+                print(f"  ✓ Body {body_id} exists at {pos}")
+            except:
+                print(f"  ✗ Body {body_id} NOT FOUND!")
 
     def update_visibility(self):
         """Show only current object, hide others."""

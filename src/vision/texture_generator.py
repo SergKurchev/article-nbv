@@ -195,16 +195,15 @@ def apply_gradient(distance_field, color1, color2, sharpness):
     else:
         normalized = distance_field
 
-    # Apply sharpness (sigmoid-like function)
-    if sharpness > 0:
-        steepness = 10 * sharpness
-        blend = 1 / (1 + np.exp(-steepness * normalized))
-    else:
-        blend = (normalized + 1) / 2
+    # Apply very sharp transition to avoid muddy colors
+    # Use steeper sigmoid to get cleaner red/green separation
+    steepness = 20  # Much steeper than before
+    blend = 1 / (1 + np.exp(-steepness * normalized))
 
     # Create RGB texture
     texture = np.zeros((size, size, 3), dtype=np.uint8)
 
+    # Apply gradient per channel
     for c in range(3):
         texture[:, :, c] = (
             color1[c] * (1 - blend) + color2[c] * blend
