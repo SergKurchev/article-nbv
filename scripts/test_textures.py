@@ -334,6 +334,7 @@ class TextureTester:
                     body_id,
                     -1,
                     textureUniqueId=texture_id,
+                    specularColor=[0, 0, 0],  # No specular to preserve true colors
                     physicsClientId=self.client_id
                 )
 

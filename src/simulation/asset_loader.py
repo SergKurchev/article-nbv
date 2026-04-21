@@ -82,7 +82,16 @@ class AssetLoader:
 
         # Apply the required texture based on texture_type
         tex_id = self._load_texture(texture_type)
-        p.changeVisualShape(body_id, -1, textureUniqueId=tex_id, physicsClientId=self.client_id)
+
+        # IMPORTANT: Set specular color to reduce lighting effects that make colors muddy
+        # This helps preserve the true red/green colors without brown tint from lighting
+        p.changeVisualShape(
+            body_id,
+            -1,
+            textureUniqueId=tex_id,
+            specularColor=[0, 0, 0],  # No specular reflection
+            physicsClientId=self.client_id
+        )
 
         return body_id
 

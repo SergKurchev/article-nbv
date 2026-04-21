@@ -135,7 +135,7 @@ TEXTURE_MIN_AREA_RATIO = 0.3  # Minimum area for each color (30%)
 TEXTURE_MAX_AREA_RATIO = 0.7  # Maximum area for each color (70%)
 
 # Realism
-TEXTURE_NOISE_LEVEL = 0.05  # Add realistic noise (0.0-0.2)
+TEXTURE_NOISE_LEVEL = 0.0  # No noise for clean textures (0.0-0.2)
 
 # --- CNN Training ---
 CNN_ARCHITECTURE = "MultiModalNet"  # Options: "MultiModalNet", "LightweightODIN", "SimpleNet"
