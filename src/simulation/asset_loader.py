@@ -8,6 +8,7 @@ class AssetLoader:
     def __init__(self, client_id):
         self.client_id = client_id
         self.obstacles = []
+        self.texture_cache = {}
         
     def load_robot(self):
         # Load kinova arm using absolute short path to avoid PyBullet Cyrillic/absolute path issues
@@ -15,41 +16,105 @@ class AssetLoader:
         robot_id = p.loadURDF(str(robot_path_short), [0, 0, 0], useFixedBase=True, physicsClientId=self.client_id)
         return robot_id
 
-    def load_target_object(self, class_id):
+    def load_target_object(self, class_id, texture_type=None):
+        """Load target object with specified texture.
+
+        Args:
+            class_id: Object class ID (0 to NUM_CLASSES-1)
+            texture_type: Texture type ('red', 'mixed', 'green').
+                         If None, uses class_id % 3 mapping.
+
+        Returns:
+            int: PyBullet body ID
+        """
         # class_id is 0 to 17
         obj_name = f"Object_{class_id + 1:02d}"
+
+        # Determine texture type if not specified
+        if texture_type is None:
+            texture_type = ['red', 'mixed', 'green'][class_id % 3]
         obj_path = config.OBJECTS_DIR / obj_name / f"{obj_name}.STL"
         
-        # We need to create visual and collision shape for STL using short paths
-        obj_path_short = config.get_short_path(obj_path)
+        # Check if JSON optimized mesh data exists (bypasses potential STL parser crashes)
+        json_path = config.OBJECTS_DIR / obj_name / "mesh.json"
         
-        # 1. Create temporary body to measure AABB and compute proper mesh scale (normalize to ~15cm max)
-        temp_col = p.createCollisionShape(shapeType=p.GEOM_MESH, fileName=str(obj_path_short), physicsClientId=self.client_id)
-        temp_body = p.createMultiBody(baseMass=0, baseCollisionShapeIndex=temp_col, physicsClientId=self.client_id)
-        
-        aabb_min, aabb_max = p.getAABB(temp_body, physicsClientId=self.client_id)
-        p.removeBody(temp_body, physicsClientId=self.client_id)
-        
-        size = np.array(aabb_max) - np.array(aabb_min)
-        max_dim = np.max(size)
-        
-        target_size = 0.15 # 15cm max dimension
-        scale = target_size / max_dim if max_dim > 0 else 1.0
-        
-        visual_shape = p.createVisualShape(shapeType=p.GEOM_MESH, fileName=str(obj_path_short), meshScale=[scale, scale, scale], physicsClientId=self.client_id)
-        collision_shape = p.createCollisionShape(shapeType=p.GEOM_MESH, fileName=str(obj_path_short), meshScale=[scale, scale, scale], physicsClientId=self.client_id)
+        if json_path.exists():
+            import json
+            with open(json_path, 'r') as f:
+                mesh_data = json.load(f)
+            v = mesh_data["vertices"]
+            ind = mesh_data["indices"]
+            
+            # Temporary creation to measure scale
+            temp_col = p.createCollisionShape(shapeType=p.GEOM_MESH, vertices=v, indices=ind, physicsClientId=self.client_id)
+            temp_body = p.createMultiBody(baseMass=0, baseCollisionShapeIndex=temp_col, physicsClientId=self.client_id)
+            aabb_min, aabb_max = p.getAABB(temp_body, physicsClientId=self.client_id)
+            p.removeBody(temp_body, physicsClientId=self.client_id)
+            
+            size = np.array(aabb_max) - np.array(aabb_min)
+            max_dim = np.max(size)
+            target_size = 0.15
+            scale = target_size / max_dim if max_dim > 0 else 1.0
+            
+            visual_shape = p.createVisualShape(shapeType=p.GEOM_MESH, vertices=v, indices=ind, meshScale=[scale, scale, scale], physicsClientId=self.client_id)
+            collision_shape = p.createCollisionShape(shapeType=p.GEOM_MESH, vertices=v, indices=ind, meshScale=[scale, scale, scale], physicsClientId=self.client_id)
+        else:
+            # Traditional STL load (as a fallback or for complex objects)
+            obj_path_short = config.get_short_path(obj_path)
+            
+            temp_col = p.createCollisionShape(shapeType=p.GEOM_MESH, fileName=str(obj_path_short), physicsClientId=self.client_id)
+            temp_body = p.createMultiBody(baseMass=0, baseCollisionShapeIndex=temp_col, physicsClientId=self.client_id)
+            aabb_min, aabb_max = p.getAABB(temp_body, physicsClientId=self.client_id)
+            p.removeBody(temp_body, physicsClientId=self.client_id)
+            
+            size = np.array(aabb_max) - np.array(aabb_min)
+            max_dim = np.max(size)
+            target_size = 0.15
+            scale = target_size / max_dim if max_dim > 0 else 1.0
+            
+            visual_shape = p.createVisualShape(shapeType=p.GEOM_MESH, fileName=str(obj_path_short), meshScale=[scale, scale, scale], physicsClientId=self.client_id)
+            collision_shape = p.createCollisionShape(shapeType=p.GEOM_MESH, fileName=str(obj_path_short), meshScale=[scale, scale, scale], physicsClientId=self.client_id)
         
         # spawn object
-        body_id = p.createMultiBody(baseMass=0.1, baseCollisionShapeIndex=collision_shape, 
-                                    baseVisualShapeIndex=visual_shape, basePosition=[0.5, 0.0, 0.2], # Slightly forward so it doesn't clip robot base
+        body_id = p.createMultiBody(baseMass=0, baseCollisionShapeIndex=collision_shape,
+                                    baseVisualShapeIndex=visual_shape, basePosition=[0.5, 0.0, 0.2],
                                     physicsClientId=self.client_id)
-                                    
-        # Apply the required texture
-        tex_path_short = config.get_short_path(config.TEXTURE_PATH)
-        tex_id = p.loadTexture(str(tex_path_short), physicsClientId=self.client_id)
+
+        # Apply the required texture based on texture_type
+        tex_id = self._load_texture(texture_type)
         p.changeVisualShape(body_id, -1, textureUniqueId=tex_id, physicsClientId=self.client_id)
-        
+
         return body_id
+
+    def _load_texture(self, texture_type):
+        """Load texture with caching.
+
+        Args:
+            texture_type: One of 'red', 'mixed', 'green'
+
+        Returns:
+            int: PyBullet texture ID
+
+        Raises:
+            FileNotFoundError: If texture file doesn't exist
+        """
+        if texture_type in self.texture_cache:
+            return self.texture_cache[texture_type]
+
+        texture_dir = config.DATA_DIR / "objects" / "textures"
+        texture_path = texture_dir / f"{texture_type}.png"
+
+        if not texture_path.exists():
+            raise FileNotFoundError(
+                f"Texture not found: {texture_path}. "
+                f"Run 'uv run python src/vision/texture_generator.py' to generate textures."
+            )
+
+        tex_path_short = config.get_short_path(texture_path)
+        tex_id = p.loadTexture(str(tex_path_short), physicsClientId=self.client_id)
+        self.texture_cache[texture_type] = tex_id
+
+        return tex_id
 
     def generate_obstacles(self):
         self.clear_obstacles()
