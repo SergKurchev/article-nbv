@@ -210,12 +210,13 @@ class TextureTester:
 
     def load_all_objects_grid(self):
         """Load all 8 objects in a 4x2 grid with all 3 textures."""
-        spacing = 0.4  # Distance between objects
-        start_x = -1.5 * spacing
-        start_y = -0.5 * spacing
-        z_height = 0.2
+        spacing = 0.5  # Distance between objects
+        start_x = -0.75  # Center the grid
+        start_y = -0.25
+        z_height = 0.3
 
         grid_objects = []
+        object_count = 0
 
         for i in range(8):
             obj_name = f"Object_{i + 1:02d}"
@@ -228,91 +229,95 @@ class TextureTester:
             base_x = start_x + col * spacing
             base_y = start_y + row * spacing
 
-            # Load mesh data
-            if json_path.exists():
-                import json
-                import numpy as np
-
-                with open(json_path, 'r') as f:
-                    mesh_data = json.load(f)
-
-                v = mesh_data["vertices"]
-                ind = mesh_data["indices"]
-
-                # Measure scale
-                temp_col = p.createCollisionShape(
-                    shapeType=p.GEOM_MESH,
-                    vertices=v,
-                    indices=ind,
-                    physicsClientId=self.client_id
-                )
-                temp_body = p.createMultiBody(
-                    baseMass=0,
-                    baseCollisionShapeIndex=temp_col,
-                    physicsClientId=self.client_id
-                )
-                aabb_min, aabb_max = p.getAABB(temp_body, physicsClientId=self.client_id)
-                p.removeBody(temp_body, physicsClientId=self.client_id)
-
-                size = np.array(aabb_max) - np.array(aabb_min)
-                max_dim = np.max(size)
-                target_size = 0.12  # Smaller for grid view
-                scale = target_size / max_dim if max_dim > 0 else 1.0
-
-                visual_shape = p.createVisualShape(
-                    shapeType=p.GEOM_MESH,
-                    vertices=v,
-                    indices=ind,
-                    meshScale=[scale, scale, scale],
-                    physicsClientId=self.client_id
-                )
-                collision_shape = p.createCollisionShape(
-                    shapeType=p.GEOM_MESH,
-                    vertices=v,
-                    indices=ind,
-                    meshScale=[scale, scale, scale],
-                    physicsClientId=self.client_id
-                )
-            else:
-                # Load from STL
-                obj_path_short = config.get_short_path(obj_path)
-
-                temp_col = p.createCollisionShape(
-                    shapeType=p.GEOM_MESH,
-                    fileName=str(obj_path_short),
-                    physicsClientId=self.client_id
-                )
-                temp_body = p.createMultiBody(
-                    baseMass=0,
-                    baseCollisionShapeIndex=temp_col,
-                    physicsClientId=self.client_id
-                )
-                aabb_min, aabb_max = p.getAABB(temp_body, physicsClientId=self.client_id)
-                p.removeBody(temp_body, physicsClientId=self.client_id)
-
-                size = np.array(aabb_max) - np.array(aabb_min)
-                max_dim = np.max(size)
-                target_size = 0.12
-                scale = target_size / max_dim if max_dim > 0 else 1.0
-
-                visual_shape = p.createVisualShape(
-                    shapeType=p.GEOM_MESH,
-                    fileName=str(obj_path_short),
-                    meshScale=[scale, scale, scale],
-                    physicsClientId=self.client_id
-                )
-                collision_shape = p.createCollisionShape(
-                    shapeType=p.GEOM_MESH,
-                    fileName=str(obj_path_short),
-                    meshScale=[scale, scale, scale],
-                    physicsClientId=self.client_id
-                )
-
             # Create 3 copies with different textures (red, mixed, green)
             for tex_idx, texture_type in enumerate(["red", "mixed", "green"]):
-                x_offset = tex_idx * 0.15  # Small offset for each texture
+                # Load mesh data for each object separately
+                if json_path.exists():
+                    import json
+                    import numpy as np
+
+                    with open(json_path, 'r') as f:
+                        mesh_data = json.load(f)
+
+                    v = mesh_data["vertices"]
+                    ind = mesh_data["indices"]
+
+                    # Measure scale
+                    temp_col = p.createCollisionShape(
+                        shapeType=p.GEOM_MESH,
+                        vertices=v,
+                        indices=ind,
+                        physicsClientId=self.client_id
+                    )
+                    temp_body = p.createMultiBody(
+                        baseMass=0,
+                        baseCollisionShapeIndex=temp_col,
+                        physicsClientId=self.client_id
+                    )
+                    aabb_min, aabb_max = p.getAABB(temp_body, physicsClientId=self.client_id)
+                    p.removeBody(temp_body, physicsClientId=self.client_id)
+
+                    size = np.array(aabb_max) - np.array(aabb_min)
+                    max_dim = np.max(size)
+                    target_size = 0.12  # Smaller for grid view
+                    scale = target_size / max_dim if max_dim > 0 else 1.0
+
+                    # Create unique shapes for this object
+                    visual_shape = p.createVisualShape(
+                        shapeType=p.GEOM_MESH,
+                        vertices=v,
+                        indices=ind,
+                        meshScale=[scale, scale, scale],
+                        physicsClientId=self.client_id
+                    )
+                    collision_shape = p.createCollisionShape(
+                        shapeType=p.GEOM_MESH,
+                        vertices=v,
+                        indices=ind,
+                        meshScale=[scale, scale, scale],
+                        physicsClientId=self.client_id
+                    )
+                else:
+                    # Load from STL
+                    obj_path_short = config.get_short_path(obj_path)
+
+                    temp_col = p.createCollisionShape(
+                        shapeType=p.GEOM_MESH,
+                        fileName=str(obj_path_short),
+                        physicsClientId=self.client_id
+                    )
+                    temp_body = p.createMultiBody(
+                        baseMass=0,
+                        baseCollisionShapeIndex=temp_col,
+                        physicsClientId=self.client_id
+                    )
+                    aabb_min, aabb_max = p.getAABB(temp_body, physicsClientId=self.client_id)
+                    p.removeBody(temp_body, physicsClientId=self.client_id)
+
+                    size = np.array(aabb_max) - np.array(aabb_min)
+                    max_dim = np.max(size)
+                    target_size = 0.12
+                    scale = target_size / max_dim if max_dim > 0 else 1.0
+
+                    # Create unique shapes for this object
+                    visual_shape = p.createVisualShape(
+                        shapeType=p.GEOM_MESH,
+                        fileName=str(obj_path_short),
+                        meshScale=[scale, scale, scale],
+                        physicsClientId=self.client_id
+                    )
+                    collision_shape = p.createCollisionShape(
+                        shapeType=p.GEOM_MESH,
+                        fileName=str(obj_path_short),
+                        meshScale=[scale, scale, scale],
+                        physicsClientId=self.client_id
+                    )
+
+                # Position: spread textures horizontally within each cell
+                x_offset = (tex_idx - 1) * 0.15  # -0.15, 0, +0.15
                 position = [base_x + x_offset, base_y, z_height]
 
+                # Create body
                 body_id = p.createMultiBody(
                     baseMass=0,  # Static object
                     baseCollisionShapeIndex=collision_shape,
@@ -337,8 +342,10 @@ class TextureTester:
                     "position": position
                 })
 
+                object_count += 1
+
         self.grid_objects = grid_objects
-        print(f"Loaded {len(grid_objects)} objects in grid (8 shapes × 3 textures)")
+        print(f"Loaded {object_count} objects in grid (8 shapes × 3 textures)")
 
     def update_visibility(self):
         """Show only current object, hide others."""
