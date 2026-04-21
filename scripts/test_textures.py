@@ -334,13 +334,12 @@ class TextureTester:
 
                 print(f"Created body {body_id}: {self.object_names[i]} with {texture_type} texture at {position}")
 
-                # Apply texture
+                # Apply texture WITHOUT rgbaColor to preserve texture patterns
                 texture_id = self.textures[texture_type]
                 p.changeVisualShape(
                     body_id,
                     -1,
                     textureUniqueId=texture_id,
-                    rgbaColor=[1, 1, 1, 1],  # White tint to preserve texture colors
                     specularColor=[0, 0, 0],  # No specular to preserve true colors
                     physicsClientId=self.client_id
                 )
@@ -388,7 +387,7 @@ class TextureTester:
             obj_id,
             -1,
             textureUniqueId=texture_id,
-            rgbaColor=[1, 1, 1, 1],  # White tint to preserve texture colors
+            specularColor=[0, 0, 0],  # No specular
             physicsClientId=self.client_id
         )
 

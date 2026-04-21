@@ -83,14 +83,12 @@ class AssetLoader:
         # Apply the required texture based on texture_type
         tex_id = self._load_texture(texture_type)
 
-        # IMPORTANT: Set specular color to reduce lighting effects that make colors muddy
-        # This helps preserve the true red/green colors without brown tint from lighting
-        # Also set rgbaColor to white to prevent gray tint
+        # Apply texture WITHOUT rgbaColor to preserve texture patterns
+        # Only set specularColor to reduce lighting artifacts
         p.changeVisualShape(
             body_id,
             -1,
             textureUniqueId=tex_id,
-            rgbaColor=[1, 1, 1, 1],  # White tint to preserve texture colors
             specularColor=[0, 0, 0],  # No specular reflection
             physicsClientId=self.client_id
         )
