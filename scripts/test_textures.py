@@ -24,22 +24,33 @@ from src.vision.texture_generator import generate_all_textures
 
 
 class TextureTester:
-    def __init__(self):
+    def __init__(self, show_all=False):
         self.client_id = p.connect(p.GUI)
+        self.show_all = show_all
 
         # Use short path to avoid Cyrillic issues
         pybullet_data_path = config.get_short_path(pybullet_data.getDataPath())
         p.setAdditionalSearchPath(pybullet_data_path, physicsClientId=self.client_id)
-        p.setGravity(0, 0, -9.8, physicsClientId=self.client_id)
+
+        # Disable gravity so objects stay in place
+        p.setGravity(0, 0, 0, physicsClientId=self.client_id)
 
         # Load plane
         p.loadURDF("plane.urdf", physicsClientId=self.client_id)
 
         # Camera settings
-        self.camera_distance = 0.8
-        self.camera_yaw = 45
-        self.camera_pitch = -30
-        self.camera_target = [0, 0, 0.2]
+        if show_all:
+            # Wide view for grid
+            self.camera_distance = 2.5
+            self.camera_yaw = 45
+            self.camera_pitch = -30
+            self.camera_target = [0, 0, 0.3]
+        else:
+            # Close view for single object
+            self.camera_distance = 0.8
+            self.camera_yaw = 45
+            self.camera_pitch = -30
+            self.camera_target = [0, 0, 0.2]
 
         # Generate textures if they don't exist
         self.texture_dir = config.DATA_DIR / "objects" / "textures"
@@ -66,26 +77,37 @@ class TextureTester:
         self.current_object_idx = 0
 
         # Load all objects
-        self.load_all_objects()
-
-        # Show only first object
-        self.update_visibility()
-
-        # Apply initial texture
-        self.apply_texture()
+        if show_all:
+            self.load_all_objects_grid()
+        else:
+            self.load_all_objects()
+            # Show only first object
+            self.update_visibility()
+            # Apply initial texture
+            self.apply_texture()
 
         # Update camera
         self.update_camera()
 
-        print("\n=== Texture Tester ===")
-        print("Controls:")
-        print("  1/2/3: Switch texture (red/mixed/green)")
-        print("  Space: Cycle through shapes")
-        print("  Arrow keys: Rotate camera")
-        print("  R: Reset view")
-        print("  Q: Quit")
-        print(f"\nCurrent shape: {self.object_names[self.current_object_idx]}")
-        print(f"Current texture: {self.texture_types[self.current_texture_idx]}")
+        if show_all:
+            print("\n=== Texture Tester (Grid Mode) ===")
+            print("All 8 objects displayed in 4x2 grid")
+            print("Each row shows same shape with 3 textures (red, mixed, green)")
+            print("\nControls:")
+            print("  Arrow keys: Rotate camera")
+            print("  +/-: Zoom in/out")
+            print("  R: Reset view")
+            print("  Q: Quit")
+        else:
+            print("\n=== Texture Tester (Interactive Mode) ===")
+            print("Controls:")
+            print("  1/2/3: Switch texture (red/mixed/green)")
+            print("  Space: Cycle through shapes")
+            print("  Arrow keys: Rotate camera")
+            print("  R: Reset view")
+            print("  Q: Quit")
+            print(f"\nCurrent shape: {self.object_names[self.current_object_idx]}")
+            print(f"Current texture: {self.texture_types[self.current_texture_idx]}")
 
     def load_all_objects(self):
         """Load all 8 primitive objects."""
@@ -177,7 +199,7 @@ class TextureTester:
 
             # Create body
             body_id = p.createMultiBody(
-                baseMass=1.0,
+                baseMass=0,  # Static object (no gravity)
                 baseCollisionShapeIndex=collision_shape,
                 baseVisualShapeIndex=visual_shape,
                 basePosition=[0, 0, 0.2],
@@ -185,6 +207,138 @@ class TextureTester:
             )
 
             self.objects.append(body_id)
+
+    def load_all_objects_grid(self):
+        """Load all 8 objects in a 4x2 grid with all 3 textures."""
+        spacing = 0.4  # Distance between objects
+        start_x = -1.5 * spacing
+        start_y = -0.5 * spacing
+        z_height = 0.2
+
+        grid_objects = []
+
+        for i in range(8):
+            obj_name = f"Object_{i + 1:02d}"
+            obj_path = config.OBJECTS_DIR / obj_name / f"{obj_name}.STL"
+            json_path = config.OBJECTS_DIR / obj_name / "mesh.json"
+
+            # Calculate grid position (4 columns x 2 rows)
+            col = i % 4
+            row = i // 4
+            base_x = start_x + col * spacing
+            base_y = start_y + row * spacing
+
+            # Load mesh data
+            if json_path.exists():
+                import json
+                import numpy as np
+
+                with open(json_path, 'r') as f:
+                    mesh_data = json.load(f)
+
+                v = mesh_data["vertices"]
+                ind = mesh_data["indices"]
+
+                # Measure scale
+                temp_col = p.createCollisionShape(
+                    shapeType=p.GEOM_MESH,
+                    vertices=v,
+                    indices=ind,
+                    physicsClientId=self.client_id
+                )
+                temp_body = p.createMultiBody(
+                    baseMass=0,
+                    baseCollisionShapeIndex=temp_col,
+                    physicsClientId=self.client_id
+                )
+                aabb_min, aabb_max = p.getAABB(temp_body, physicsClientId=self.client_id)
+                p.removeBody(temp_body, physicsClientId=self.client_id)
+
+                size = np.array(aabb_max) - np.array(aabb_min)
+                max_dim = np.max(size)
+                target_size = 0.12  # Smaller for grid view
+                scale = target_size / max_dim if max_dim > 0 else 1.0
+
+                visual_shape = p.createVisualShape(
+                    shapeType=p.GEOM_MESH,
+                    vertices=v,
+                    indices=ind,
+                    meshScale=[scale, scale, scale],
+                    physicsClientId=self.client_id
+                )
+                collision_shape = p.createCollisionShape(
+                    shapeType=p.GEOM_MESH,
+                    vertices=v,
+                    indices=ind,
+                    meshScale=[scale, scale, scale],
+                    physicsClientId=self.client_id
+                )
+            else:
+                # Load from STL
+                obj_path_short = config.get_short_path(obj_path)
+
+                temp_col = p.createCollisionShape(
+                    shapeType=p.GEOM_MESH,
+                    fileName=str(obj_path_short),
+                    physicsClientId=self.client_id
+                )
+                temp_body = p.createMultiBody(
+                    baseMass=0,
+                    baseCollisionShapeIndex=temp_col,
+                    physicsClientId=self.client_id
+                )
+                aabb_min, aabb_max = p.getAABB(temp_body, physicsClientId=self.client_id)
+                p.removeBody(temp_body, physicsClientId=self.client_id)
+
+                size = np.array(aabb_max) - np.array(aabb_min)
+                max_dim = np.max(size)
+                target_size = 0.12
+                scale = target_size / max_dim if max_dim > 0 else 1.0
+
+                visual_shape = p.createVisualShape(
+                    shapeType=p.GEOM_MESH,
+                    fileName=str(obj_path_short),
+                    meshScale=[scale, scale, scale],
+                    physicsClientId=self.client_id
+                )
+                collision_shape = p.createCollisionShape(
+                    shapeType=p.GEOM_MESH,
+                    fileName=str(obj_path_short),
+                    meshScale=[scale, scale, scale],
+                    physicsClientId=self.client_id
+                )
+
+            # Create 3 copies with different textures (red, mixed, green)
+            for tex_idx, texture_type in enumerate(["red", "mixed", "green"]):
+                x_offset = tex_idx * 0.15  # Small offset for each texture
+                position = [base_x + x_offset, base_y, z_height]
+
+                body_id = p.createMultiBody(
+                    baseMass=0,  # Static object
+                    baseCollisionShapeIndex=collision_shape,
+                    baseVisualShapeIndex=visual_shape,
+                    basePosition=position,
+                    physicsClientId=self.client_id
+                )
+
+                # Apply texture
+                texture_id = self.textures[texture_type]
+                p.changeVisualShape(
+                    body_id,
+                    -1,
+                    textureUniqueId=texture_id,
+                    physicsClientId=self.client_id
+                )
+
+                grid_objects.append({
+                    "body_id": body_id,
+                    "object_name": self.object_names[i],
+                    "texture_type": texture_type,
+                    "position": position
+                })
+
+        self.grid_objects = grid_objects
+        print(f"Loaded {len(grid_objects)} objects in grid (8 shapes × 3 textures)")
 
     def update_visibility(self):
         """Show only current object, hide others."""
@@ -223,29 +377,7 @@ class TextureTester:
         """Handle keyboard input."""
         keys = p.getKeyboardEvents()
 
-        # Texture switching (1/2/3)
-        if ord('1') in keys and keys[ord('1')] & p.KEY_WAS_TRIGGERED:
-            self.current_texture_idx = 0
-            self.apply_texture()
-            print(f"Texture: {self.texture_types[self.current_texture_idx]}")
-
-        if ord('2') in keys and keys[ord('2')] & p.KEY_WAS_TRIGGERED:
-            self.current_texture_idx = 1
-            self.apply_texture()
-            print(f"Texture: {self.texture_types[self.current_texture_idx]}")
-
-        if ord('3') in keys and keys[ord('3')] & p.KEY_WAS_TRIGGERED:
-            self.current_texture_idx = 2
-            self.apply_texture()
-            print(f"Texture: {self.texture_types[self.current_texture_idx]}")
-
-        # Shape cycling (Space)
-        if ord(' ') in keys and keys[ord(' ')] & p.KEY_WAS_TRIGGERED:
-            self.current_object_idx = (self.current_object_idx + 1) % len(self.objects)
-            self.update_visibility()
-            self.apply_texture()
-            print(f"Shape: {self.object_names[self.current_object_idx]}")
-
+        # Common controls for both modes
         # Camera rotation (Arrow keys)
         if p.B3G_LEFT_ARROW in keys and keys[p.B3G_LEFT_ARROW] & p.KEY_IS_DOWN:
             self.camera_yaw -= 2
@@ -263,11 +395,25 @@ class TextureTester:
             self.camera_pitch = max(self.camera_pitch - 2, -89)
             self.update_camera()
 
+        # Zoom (+ and -)
+        if ord('+') in keys and keys[ord('+')] & p.KEY_IS_DOWN:
+            self.camera_distance = max(0.3, self.camera_distance - 0.1)
+            self.update_camera()
+
+        if ord('-') in keys and keys[ord('-')] & p.KEY_IS_DOWN:
+            self.camera_distance = min(5.0, self.camera_distance + 0.1)
+            self.update_camera()
+
         # Reset view (R)
         if ord('r') in keys and keys[ord('r')] & p.KEY_WAS_TRIGGERED:
-            self.camera_yaw = 45
-            self.camera_pitch = -30
-            self.camera_distance = 0.8
+            if self.show_all:
+                self.camera_yaw = 45
+                self.camera_pitch = -30
+                self.camera_distance = 2.5
+            else:
+                self.camera_yaw = 45
+                self.camera_pitch = -30
+                self.camera_distance = 0.8
             self.update_camera()
             print("View reset")
 
@@ -275,18 +421,43 @@ class TextureTester:
         if ord('q') in keys and keys[ord('q')] & p.KEY_WAS_TRIGGERED:
             return False
 
+        # Interactive mode controls (only if not show_all)
+        if not self.show_all:
+            # Texture switching (1/2/3)
+            if ord('1') in keys and keys[ord('1')] & p.KEY_WAS_TRIGGERED:
+                self.current_texture_idx = 0
+                self.apply_texture()
+                print(f"Texture: {self.texture_types[self.current_texture_idx]}")
+
+            if ord('2') in keys and keys[ord('2')] & p.KEY_WAS_TRIGGERED:
+                self.current_texture_idx = 1
+                self.apply_texture()
+                print(f"Texture: {self.texture_types[self.current_texture_idx]}")
+
+            if ord('3') in keys and keys[ord('3')] & p.KEY_WAS_TRIGGERED:
+                self.current_texture_idx = 2
+                self.apply_texture()
+                print(f"Texture: {self.texture_types[self.current_texture_idx]}")
+
+            # Shape cycling (Space)
+            if ord(' ') in keys and keys[ord(' ')] & p.KEY_WAS_TRIGGERED:
+                self.current_object_idx = (self.current_object_idx + 1) % len(self.objects)
+                self.update_visibility()
+                self.apply_texture()
+                print(f"Shape: {self.object_names[self.current_object_idx]}")
+
         return True
 
     def run(self):
         """Main loop."""
         try:
+            print("\nViewer is running. Press Q to quit.")
             while True:
-                p.stepSimulation()
+                # No physics simulation needed (objects are static)
+                time.sleep(1.0 / 60.0)
 
                 if not self.handle_keys():
                     break
-
-                time.sleep(1.0 / 60.0)
 
         finally:
             p.disconnect()
@@ -297,14 +468,10 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="Test textures on primitive shapes")
-    parser.add_argument("--show-all", action="store_true", help="Show all shapes at once")
+    parser.add_argument("--show-all", action="store_true", help="Show all shapes in grid layout")
     args = parser.parse_args()
 
-    if args.show_all:
-        print("--show-all mode not yet implemented. Use interactive mode.")
-        return
-
-    tester = TextureTester()
+    tester = TextureTester(show_all=args.show_all)
     tester.run()
 
 
