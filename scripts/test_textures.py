@@ -35,6 +35,12 @@ class TextureTester:
         # Disable gravity so objects stay in place
         p.setGravity(0, 0, 0, physicsClientId=self.client_id)
 
+        # Disable lighting to preserve texture colors
+        p.configureDebugVisualizer(p.COV_ENABLE_SHADOWS, 0, physicsClientId=self.client_id)
+        p.configureDebugVisualizer(p.COV_ENABLE_RGB_BUFFER_PREVIEW, 0, physicsClientId=self.client_id)
+        p.configureDebugVisualizer(p.COV_ENABLE_DEPTH_BUFFER_PREVIEW, 0, physicsClientId=self.client_id)
+        p.configureDebugVisualizer(p.COV_ENABLE_SEGMENTATION_MARK_PREVIEW, 0, physicsClientId=self.client_id)
+
         # Load plane
         p.loadURDF("plane.urdf", physicsClientId=self.client_id)
 
@@ -334,6 +340,7 @@ class TextureTester:
                     body_id,
                     -1,
                     textureUniqueId=texture_id,
+                    rgbaColor=[1, 1, 1, 1],  # White tint to preserve texture colors
                     specularColor=[0, 0, 0],  # No specular to preserve true colors
                     physicsClientId=self.client_id
                 )
@@ -348,8 +355,8 @@ class TextureTester:
                 object_count += 1
 
         self.grid_objects = grid_objects
-        print(f"\n✓ Loaded {object_count} objects in grid (8 shapes × 3 textures)")
-        print(f"✓ Grid objects list has {len(self.grid_objects)} entries")
+        print(f"\n[OK] Loaded {object_count} objects in grid (8 shapes x 3 textures)")
+        print(f"[OK] Grid objects list has {len(self.grid_objects)} entries")
 
         # Verify all objects still exist
         print("\nVerifying objects exist:")
@@ -357,9 +364,9 @@ class TextureTester:
             body_id = obj_info["body_id"]
             try:
                 pos, orn = p.getBasePositionAndOrientation(body_id, physicsClientId=self.client_id)
-                print(f"  ✓ Body {body_id} exists at {pos}")
+                print(f"  [OK] Body {body_id} exists at {pos}")
             except:
-                print(f"  ✗ Body {body_id} NOT FOUND!")
+                print(f"  [ERROR] Body {body_id} NOT FOUND!")
 
     def update_visibility(self):
         """Show only current object, hide others."""
@@ -381,6 +388,7 @@ class TextureTester:
             obj_id,
             -1,
             textureUniqueId=texture_id,
+            rgbaColor=[1, 1, 1, 1],  # White tint to preserve texture colors
             physicsClientId=self.client_id
         )
 
