@@ -87,7 +87,7 @@ class AssetLoader:
         return body_id
 
     def _load_texture(self, texture_type):
-        """Load texture with caching.
+        """Load texture with caching and random variant selection.
 
         Args:
             texture_type: One of 'red', 'mixed', 'green'
@@ -98,21 +98,37 @@ class AssetLoader:
         Raises:
             FileNotFoundError: If texture file doesn't exist
         """
-        if texture_type in self.texture_cache:
-            return self.texture_cache[texture_type]
+        # For mixed textures, randomly select a variant
+        if texture_type == 'mixed':
+            import random
+            # Check how many mixed variants exist
+            texture_dir = config.DATA_DIR / "objects" / "textures"
+            variants = list(texture_dir.glob("mixed*.png"))
+            if variants:
+                # Randomly select one variant
+                selected_texture = random.choice(variants)
+                cache_key = f"mixed_{selected_texture.stem}"
+            else:
+                cache_key = texture_type
+                selected_texture = texture_dir / f"{texture_type}.png"
+        else:
+            cache_key = texture_type
+            texture_dir = config.DATA_DIR / "objects" / "textures"
+            selected_texture = texture_dir / f"{texture_type}.png"
 
-        texture_dir = config.DATA_DIR / "objects" / "textures"
-        texture_path = texture_dir / f"{texture_type}.png"
+        # Check cache
+        if cache_key in self.texture_cache:
+            return self.texture_cache[cache_key]
 
-        if not texture_path.exists():
+        if not selected_texture.exists():
             raise FileNotFoundError(
-                f"Texture not found: {texture_path}. "
+                f"Texture not found: {selected_texture}. "
                 f"Run 'uv run python src/vision/texture_generator.py' to generate textures."
             )
 
-        tex_path_short = config.get_short_path(texture_path)
+        tex_path_short = config.get_short_path(selected_texture)
         tex_id = p.loadTexture(str(tex_path_short), physicsClientId=self.client_id)
-        self.texture_cache[texture_type] = tex_id
+        self.texture_cache[cache_key] = tex_id
 
         return tex_id
 

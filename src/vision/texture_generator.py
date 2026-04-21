@@ -195,9 +195,11 @@ def apply_gradient(distance_field, color1, color2, sharpness):
     else:
         normalized = distance_field
 
-    # Apply very sharp transition to avoid muddy colors
-    # Use steeper sigmoid to get cleaner red/green separation
-    steepness = 20  # Much steeper than before
+    # Use moderate steepness for visible but clear gradient
+    # Too steep (20) = almost no gradient visible
+    # Too soft (5) = muddy colors
+    # Sweet spot: 8-10
+    steepness = 8
     blend = 1 / (1 + np.exp(-steepness * normalized))
 
     # Create RGB texture
@@ -272,11 +274,12 @@ def generate_curved_gradient_texture(color1, color2, complexity, amplitude, shar
     raise RuntimeError(f"Failed to generate valid curved gradient after {max_attempts} attempts")
 
 
-def generate_all_textures(output_dir=None):
-    """Generate all three texture variants.
+def generate_all_textures(output_dir=None, num_variants=3):
+    """Generate all texture variants with multiple random mixed textures.
 
     Args:
         output_dir: Output directory path (default: src/data/objects/textures/)
+        num_variants: Number of random mixed texture variants to generate
 
     Returns:
         dict: Mapping of texture_type to file path
@@ -301,23 +304,29 @@ def generate_all_textures(output_dir=None):
     texture_paths["red"] = red_path
     print(f"  Saved to {red_path}")
 
-    # Generate mixed texture (curved gradient)
-    print("Generating mixed texture (curved gradient)...")
-    mixed_texture = generate_curved_gradient_texture(
-        config.TEXTURE_RED_COLOR,
-        config.TEXTURE_GREEN_COLOR,
-        config.TEXTURE_CURVE_COMPLEXITY,
-        config.TEXTURE_CURVE_AMPLITUDE,
-        config.TEXTURE_GRADIENT_SHARPNESS,
-        config.TEXTURE_SIZE,
-        config.TEXTURE_MIN_AREA_RATIO,
-        config.TEXTURE_MAX_AREA_RATIO
-    )
-    mixed_texture = add_noise(mixed_texture, config.TEXTURE_NOISE_LEVEL)
-    mixed_path = output_dir / "mixed.png"
-    mixed_texture.save(mixed_path)
-    texture_paths["mixed"] = mixed_path
-    print(f"  Saved to {mixed_path}")
+    # Generate multiple mixed textures with different random curves
+    print(f"Generating {num_variants} mixed texture variants...")
+    for variant_idx in range(num_variants):
+        mixed_texture = generate_curved_gradient_texture(
+            config.TEXTURE_RED_COLOR,
+            config.TEXTURE_GREEN_COLOR,
+            config.TEXTURE_CURVE_COMPLEXITY,
+            config.TEXTURE_CURVE_AMPLITUDE,
+            config.TEXTURE_GRADIENT_SHARPNESS,
+            config.TEXTURE_SIZE,
+            config.TEXTURE_MIN_AREA_RATIO,
+            config.TEXTURE_MAX_AREA_RATIO
+        )
+        mixed_texture = add_noise(mixed_texture, config.TEXTURE_NOISE_LEVEL)
+
+        if variant_idx == 0:
+            mixed_path = output_dir / "mixed.png"
+        else:
+            mixed_path = output_dir / f"mixed_{variant_idx}.png"
+
+        mixed_texture.save(mixed_path)
+        texture_paths[f"mixed_{variant_idx}"] = mixed_path
+        print(f"  Saved variant {variant_idx} to {mixed_path}")
 
     # Generate green texture
     print("Generating green texture...")
