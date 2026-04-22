@@ -17,13 +17,13 @@ def evaluate():
     args = config.get_args()
     
     # Load model
-    vision_model = NetLoader.load()
+    vision_model = NetLoader.load(arch=config.CNN_ARCHITECTURE, num_classes=config.NUM_CLASSES, vector_dim=15)
     if config.CNN_LOAD_MODE == "best" and config.CNN_MODEL_PATH.exists():
         print(f"Loading weights from {config.CNN_MODEL_PATH}")
         vision_model.load_state_dict(torch.load(config.CNN_MODEL_PATH, map_location="cpu"))
     vision_model.eval()
-    
-    # Hook for features (on global_pool of MultiModalNet)
+
+    # Hook for features (on global_pool of MultiModalNet or LightweightODIN)
     features_list = []
     def hook(module, inp, out):
         features_list.append(out.view(out.size(0), -1).detach().cpu().numpy())
@@ -33,12 +33,17 @@ def evaluate():
     env = DummyVecEnv([lambda: NBVEnv(render_mode="rgb_array", headless=True, no_arm=args.no_arm, vision_model=vision_model)])
     agent = NBVAgent(env)
     
-    # Load policy (Already handled in NBVAgent if logic added, or here)
+    # Load policy
     if args.load == "none":
         print("Warning: evaluate.py run without --load RL policy. Random agent.")
     else:
-        # Placeholder for RL policy load (e.g. from config or arg)
-        print(f"Loading {args.load} RL policy...")
+        run_to_load = config.get_latest_rl_run_dir()
+        if run_to_load is not None:
+            model_path = run_to_load / ("best_policy" if args.load == "best" else "last_policy")
+            print(f"Loading RL weights from {model_path}...")
+            agent.load(str(model_path))
+        else:
+            print(f"No previous runs found for mode={config.OBJECT_MODE}, objects={config.NUM_CLASSES}. Random agent.")
         
     num_episodes = 50
     initial_acc_diffs = []
@@ -83,7 +88,8 @@ def evaluate():
             
             features_list.clear() # The hook will fill this
             with torch.no_grad():
-                logits, mask_pred = vision_model(img_t, vec_t)
+                logits = vision_model(img_t, vec_t)
+                if isinstance(logits, tuple): logits = logits[0]
                 pred_class = logits.argmax(dim=1).item()
             
             ep_preds.append(pred_class)

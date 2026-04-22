@@ -1,507 +1,305 @@
-"""Interactive texture testing tool for NBV project.
+"""Generate grid view of all textures using PyBullet primitives (with UV coordinates)."""
+import sys
+from pathlib import Path
+import numpy as np
+from PIL import Image
 
-Visualizes textures on primitive shapes in PyBullet.
-
-Controls:
-- 1/2/3: Switch texture (red/mixed/green)
-- Space: Cycle through shapes
-- Arrow keys: Rotate camera
-- R: Reset view
-- Q: Quit
-"""
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pybullet as p
 import pybullet_data
-import time
-import sys
-from pathlib import Path
-
-# Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 import config
 from src.vision.texture_generator import generate_all_textures
 
 
-class TextureTester:
-    def __init__(self, show_all=False):
-        self.client_id = p.connect(p.GUI)
-        self.show_all = show_all
+def capture_all_textures(gui_mode=False):
+    """Capture all 8 primitive shapes x 3 textures in one image.
 
-        # Use short path to avoid Cyrillic issues
-        pybullet_data_path = config.get_short_path(pybullet_data.getDataPath())
-        p.setAdditionalSearchPath(pybullet_data_path, physicsClientId=self.client_id)
+    Args:
+        gui_mode: If True, opens interactive GUI viewer instead of saving screenshot
+    """
+    client_id = p.connect(p.GUI if gui_mode else p.DIRECT)
 
-        # Disable gravity so objects stay in place
-        p.setGravity(0, 0, 0, physicsClientId=self.client_id)
+    pybullet_data_path = config.get_short_path(pybullet_data.getDataPath())
+    p.setAdditionalSearchPath(pybullet_data_path, physicsClientId=client_id)
+    p.setGravity(0, 0, 0, physicsClientId=client_id)
+    p.loadURDF("plane.urdf", physicsClientId=client_id)
 
-        # Disable lighting to preserve texture colors
-        p.configureDebugVisualizer(p.COV_ENABLE_SHADOWS, 0, physicsClientId=self.client_id)
-        p.configureDebugVisualizer(p.COV_ENABLE_RGB_BUFFER_PREVIEW, 0, physicsClientId=self.client_id)
-        p.configureDebugVisualizer(p.COV_ENABLE_DEPTH_BUFFER_PREVIEW, 0, physicsClientId=self.client_id)
-        p.configureDebugVisualizer(p.COV_ENABLE_SEGMENTATION_MARK_PREVIEW, 0, physicsClientId=self.client_id)
+    print("Generating textures...")
+    generate_all_textures()
 
-        # Load plane
-        p.loadURDF("plane.urdf", physicsClientId=self.client_id)
+    # Load textures
+    texture_dir = config.DATA_DIR / "objects" / "textures"
+    textures = {}
+    for texture_type in ["red", "mixed", "green"]:
+        texture_path = texture_dir / f"{texture_type}.png"
+        texture_path_short = config.get_short_path(texture_path)
+        textures[texture_type] = p.loadTexture(str(texture_path_short), physicsClientId=client_id)
 
-        # Camera settings
-        if show_all:
-            # Wide view for grid
-            self.camera_distance = 2.5
-            self.camera_yaw = 45
-            self.camera_pitch = -30
-            self.camera_target = [0, 0, 0.3]
-        else:
-            # Close view for single object
-            self.camera_distance = 0.8
-            self.camera_yaw = 45
-            self.camera_pitch = -30
-            self.camera_target = [0, 0, 0.2]
+    def generate_spherical_uvs(vertices):
+        """Generate spherical UV coordinates for mesh vertices."""
+        uvs = []
+        for v in vertices:
+            x, y, z = v
+            # Normalize to unit sphere
+            length = np.sqrt(x*x + y*y + z*z)
+            if length > 0:
+                x, y, z = x/length, y/length, z/length
 
-        # Generate textures if they don't exist
-        self.texture_dir = config.DATA_DIR / "objects" / "textures"
-        if not (self.texture_dir / "red.png").exists():
-            print("Generating textures...")
-            generate_all_textures()
+            # Spherical coordinates
+            u = 0.5 + np.arctan2(z, x) / (2 * np.pi)
+            v = 0.5 - np.arcsin(y) / np.pi
+            uvs.append([u, v])
+        return uvs
 
-        # Load textures
-        self.textures = {}
-        for texture_type in ["red", "mixed", "green"]:
-            texture_path = self.texture_dir / f"{texture_type}.png"
-            texture_path_short = config.get_short_path(texture_path)
-            self.textures[texture_type] = p.loadTexture(str(texture_path_short))
+    # Create grid: 4 columns x 2 rows
+    spacing = 0.6  # Increased spacing to prevent overlap
+    start_x = -0.9
+    start_y = -0.3
+    z_height = 0.3
 
-        self.texture_types = ["red", "mixed", "green"]
-        self.current_texture_idx = 0
+    print("Loading 8 primitive objects from Object_01 to Object_08...")
 
-        # Object list (8 primitives)
-        self.objects = []
-        self.object_names = [
-            "cube", "sphere", "cylinder", "cone",
-            "capsule", "torus", "hourglass", "prism"
-        ]
-        self.current_object_idx = 0
+    for i in range(8):
+        obj_name = f"Object_{i + 1:02d}"
+        json_path = config.OBJECTS_DIR / obj_name / "mesh.json"
 
-        # Load all objects
-        if show_all:
-            self.load_all_objects_grid()
-        else:
-            self.load_all_objects()
-            # Show only first object
-            self.update_visibility()
-            # Apply initial texture
-            self.apply_texture()
+        if not json_path.exists():
+            print(f"Warning: {json_path} not found, skipping...")
+            continue
 
-        # Update camera
-        self.update_camera()
+        # Load mesh data
+        import json
+        with open(json_path, 'r') as f:
+            mesh_data = json.load(f)
 
-        if show_all:
-            print("\n=== Texture Tester (Grid Mode) ===")
-            print("All 8 objects displayed in 4x2 grid")
-            print("Each row shows same shape with 3 textures (red, mixed, green)")
-            print("\nControls:")
-            print("  Arrow keys: Rotate camera")
-            print("  +/-: Zoom in/out")
-            print("  R: Reset view")
-            print("  Q: Quit")
-        else:
-            print("\n=== Texture Tester (Interactive Mode) ===")
-            print("Controls:")
-            print("  1/2/3: Switch texture (red/mixed/green)")
-            print("  Space: Cycle through shapes")
-            print("  Arrow keys: Rotate camera")
-            print("  R: Reset view")
-            print("  Q: Quit")
-            print(f"\nCurrent shape: {self.object_names[self.current_object_idx]}")
-            print(f"Current texture: {self.texture_types[self.current_texture_idx]}")
+        vertices = mesh_data["vertices"]
+        indices = mesh_data["indices"]
 
-    def load_all_objects(self):
-        """Load all 8 primitive objects."""
-        for i in range(8):
-            obj_name = f"Object_{i + 1:02d}"
-            obj_path = config.OBJECTS_DIR / obj_name / f"{obj_name}.STL"
+        # Generate UV coordinates
+        uvs = generate_spherical_uvs(vertices)
 
-            # Check for JSON mesh data
-            json_path = config.OBJECTS_DIR / obj_name / "mesh.json"
+        # Calculate scale to normalize size
+        temp_col = p.createCollisionShape(
+            shapeType=p.GEOM_MESH,
+            vertices=vertices,
+            indices=indices,
+            physicsClientId=client_id
+        )
+        temp_body = p.createMultiBody(
+            baseMass=0,
+            baseCollisionShapeIndex=temp_col,
+            physicsClientId=client_id
+        )
+        aabb_min, aabb_max = p.getAABB(temp_body, physicsClientId=client_id)
+        p.removeBody(temp_body, physicsClientId=client_id)
 
-            if json_path.exists():
-                import json
-                import numpy as np
+        size = np.array(aabb_max) - np.array(aabb_min)
+        max_dim = np.max(size)
+        target_size = 0.12
+        scale = target_size / max_dim if max_dim > 0 else 1.0
 
-                with open(json_path, 'r') as f:
-                    mesh_data = json.load(f)
+        col = i % 4
+        row = i // 4
+        base_x = start_x + col * spacing
+        base_y = start_y + row * spacing
 
-                v = mesh_data["vertices"]
-                ind = mesh_data["indices"]
+        # Create 3 copies with different textures
+        for tex_idx, texture_type in enumerate(["red", "mixed", "green"]):
+            x_offset = (tex_idx - 1) * 0.18  # Increased offset
+            position = [base_x + x_offset, base_y, z_height]
 
-                # Measure scale
-                temp_col = p.createCollisionShape(
-                    shapeType=p.GEOM_MESH,
-                    vertices=v,
-                    indices=ind,
-                    physicsClientId=self.client_id
-                )
-                temp_body = p.createMultiBody(
-                    baseMass=0,
-                    baseCollisionShapeIndex=temp_col,
-                    physicsClientId=self.client_id
-                )
-                aabb_min, aabb_max = p.getAABB(temp_body, physicsClientId=self.client_id)
-                p.removeBody(temp_body, physicsClientId=self.client_id)
-
-                size = np.array(aabb_max) - np.array(aabb_min)
-                max_dim = np.max(size)
-                target_size = 0.15
-                scale = target_size / max_dim if max_dim > 0 else 1.0
-
-                visual_shape = p.createVisualShape(
-                    shapeType=p.GEOM_MESH,
-                    vertices=v,
-                    indices=ind,
-                    meshScale=[scale, scale, scale],
-                    physicsClientId=self.client_id
-                )
-                collision_shape = p.createCollisionShape(
-                    shapeType=p.GEOM_MESH,
-                    vertices=v,
-                    indices=ind,
-                    meshScale=[scale, scale, scale],
-                    physicsClientId=self.client_id
-                )
-            else:
-                # Load from STL
-                obj_path_short = config.get_short_path(obj_path)
-
-                temp_col = p.createCollisionShape(
-                    shapeType=p.GEOM_MESH,
-                    fileName=str(obj_path_short),
-                    physicsClientId=self.client_id
-                )
-                temp_body = p.createMultiBody(
-                    baseMass=0,
-                    baseCollisionShapeIndex=temp_col,
-                    physicsClientId=self.client_id
-                )
-                aabb_min, aabb_max = p.getAABB(temp_body, physicsClientId=self.client_id)
-                p.removeBody(temp_body, physicsClientId=self.client_id)
-
-                size = np.array(aabb_max) - np.array(aabb_min)
-                max_dim = np.max(size)
-                target_size = 0.15
-                scale = target_size / max_dim if max_dim > 0 else 1.0
-
-                visual_shape = p.createVisualShape(
-                    shapeType=p.GEOM_MESH,
-                    fileName=str(obj_path_short),
-                    meshScale=[scale, scale, scale],
-                    physicsClientId=self.client_id
-                )
-                collision_shape = p.createCollisionShape(
-                    shapeType=p.GEOM_MESH,
-                    fileName=str(obj_path_short),
-                    meshScale=[scale, scale, scale],
-                    physicsClientId=self.client_id
-                )
-
-            # Create body
-            body_id = p.createMultiBody(
-                baseMass=0,  # Static object (no gravity)
-                baseCollisionShapeIndex=collision_shape,
-                baseVisualShapeIndex=visual_shape,
-                basePosition=[0, 0, 0.2],
-                physicsClientId=self.client_id
+            # Create visual shape with UV coordinates
+            visual_shape = p.createVisualShape(
+                shapeType=p.GEOM_MESH,
+                vertices=vertices,
+                indices=indices,
+                uvs=uvs,
+                meshScale=[scale, scale, scale],
+                physicsClientId=client_id
             )
 
-            self.objects.append(body_id)
+            # Create collision shape
+            collision_shape = p.createCollisionShape(
+                shapeType=p.GEOM_MESH,
+                vertices=vertices,
+                indices=indices,
+                meshScale=[scale, scale, scale],
+                physicsClientId=client_id
+            )
 
-    def load_all_objects_grid(self):
-        """Load all 8 objects in a 4x2 grid with all 3 textures."""
-        spacing = 0.5  # Distance between objects
-        start_x = -0.75  # Center the grid
-        start_y = -0.25
-        z_height = 0.3
+            body_id = p.createMultiBody(
+                baseMass=0,
+                baseCollisionShapeIndex=collision_shape,
+                baseVisualShapeIndex=visual_shape,
+                basePosition=position,
+                physicsClientId=client_id
+            )
 
-        grid_objects = []
-        object_count = 0
+            # Apply texture and disable backface culling
+            texture_id = textures[texture_type]
+            p.changeVisualShape(
+                body_id, -1,
+                textureUniqueId=texture_id,
+                specularColor=[0, 0, 0],
+                flags=p.VISUAL_SHAPE_DOUBLE_SIDED,  # Render both sides of faces
+                physicsClientId=client_id
+            )
 
-        for i in range(8):
-            obj_name = f"Object_{i + 1:02d}"
-            obj_path = config.OBJECTS_DIR / obj_name / f"{obj_name}.STL"
-            json_path = config.OBJECTS_DIR / obj_name / "mesh.json"
+    print("Capturing screenshot...")
+    width, height = 1920, 1080
 
-            # Calculate grid position (4 columns x 2 rows)
-            col = i % 4
-            row = i // 4
-            base_x = start_x + col * spacing
-            base_y = start_y + row * spacing
+    if gui_mode:
+        # Interactive GUI mode
+        print("\n=== Interactive GUI Mode ===")
+        print("Controls:")
+        print("  Mouse drag: Rotate camera")
+        print("  Mouse wheel: Zoom in/out")
+        print("  Arrow keys: Move camera target (Left/Right/Forward/Backward)")
+        print("  [ / ]: Move camera target up/down")
+        print("  Space: Reset camera view")
+        print("  Q: Quit and save screenshot")
+        print("\nPress Q to quit...")
 
-            # Create 3 copies with different textures (red, mixed, green)
-            for tex_idx, texture_type in enumerate(["red", "mixed", "green"]):
-                # Load mesh data for each object separately
-                if json_path.exists():
-                    import json
-                    import numpy as np
+        # Set initial camera view
+        camera_distance = 2.5
+        camera_yaw = 45
+        camera_pitch = -30
+        camera_target = [0, 0, 0.3]
 
-                    with open(json_path, 'r') as f:
-                        mesh_data = json.load(f)
-
-                    v = mesh_data["vertices"]
-                    ind = mesh_data["indices"]
-
-                    # Measure scale
-                    temp_col = p.createCollisionShape(
-                        shapeType=p.GEOM_MESH,
-                        vertices=v,
-                        indices=ind,
-                        physicsClientId=self.client_id
-                    )
-                    temp_body = p.createMultiBody(
-                        baseMass=0,
-                        baseCollisionShapeIndex=temp_col,
-                        physicsClientId=self.client_id
-                    )
-                    aabb_min, aabb_max = p.getAABB(temp_body, physicsClientId=self.client_id)
-                    p.removeBody(temp_body, physicsClientId=self.client_id)
-
-                    size = np.array(aabb_max) - np.array(aabb_min)
-                    max_dim = np.max(size)
-                    target_size = 0.12  # Smaller for grid view
-                    scale = target_size / max_dim if max_dim > 0 else 1.0
-
-                    # Create unique shapes for this object
-                    visual_shape = p.createVisualShape(
-                        shapeType=p.GEOM_MESH,
-                        vertices=v,
-                        indices=ind,
-                        meshScale=[scale, scale, scale],
-                        physicsClientId=self.client_id
-                    )
-                    collision_shape = p.createCollisionShape(
-                        shapeType=p.GEOM_MESH,
-                        vertices=v,
-                        indices=ind,
-                        meshScale=[scale, scale, scale],
-                        physicsClientId=self.client_id
-                    )
-                else:
-                    # Load from STL
-                    obj_path_short = config.get_short_path(obj_path)
-
-                    temp_col = p.createCollisionShape(
-                        shapeType=p.GEOM_MESH,
-                        fileName=str(obj_path_short),
-                        physicsClientId=self.client_id
-                    )
-                    temp_body = p.createMultiBody(
-                        baseMass=0,
-                        baseCollisionShapeIndex=temp_col,
-                        physicsClientId=self.client_id
-                    )
-                    aabb_min, aabb_max = p.getAABB(temp_body, physicsClientId=self.client_id)
-                    p.removeBody(temp_body, physicsClientId=self.client_id)
-
-                    size = np.array(aabb_max) - np.array(aabb_min)
-                    max_dim = np.max(size)
-                    target_size = 0.12
-                    scale = target_size / max_dim if max_dim > 0 else 1.0
-
-                    # Create unique shapes for this object
-                    visual_shape = p.createVisualShape(
-                        shapeType=p.GEOM_MESH,
-                        fileName=str(obj_path_short),
-                        meshScale=[scale, scale, scale],
-                        physicsClientId=self.client_id
-                    )
-                    collision_shape = p.createCollisionShape(
-                        shapeType=p.GEOM_MESH,
-                        fileName=str(obj_path_short),
-                        meshScale=[scale, scale, scale],
-                        physicsClientId=self.client_id
-                    )
-
-                # Position: spread textures horizontally within each cell
-                x_offset = (tex_idx - 1) * 0.15  # -0.15, 0, +0.15
-                position = [base_x + x_offset, base_y, z_height]
-
-                # Create body
-                body_id = p.createMultiBody(
-                    baseMass=0,  # Static object
-                    baseCollisionShapeIndex=collision_shape,
-                    baseVisualShapeIndex=visual_shape,
-                    basePosition=position,
-                    physicsClientId=self.client_id
-                )
-
-                print(f"Created body {body_id}: {self.object_names[i]} with {texture_type} texture at {position}")
-
-                # Apply texture WITHOUT rgbaColor to preserve texture patterns
-                texture_id = self.textures[texture_type]
-                p.changeVisualShape(
-                    body_id,
-                    -1,
-                    textureUniqueId=texture_id,
-                    specularColor=[0, 0, 0],  # No specular to preserve true colors
-                    physicsClientId=self.client_id
-                )
-
-                grid_objects.append({
-                    "body_id": body_id,
-                    "object_name": self.object_names[i],
-                    "texture_type": texture_type,
-                    "position": position
-                })
-
-                object_count += 1
-
-        self.grid_objects = grid_objects
-        print(f"\n[OK] Loaded {object_count} objects in grid (8 shapes x 3 textures)")
-        print(f"[OK] Grid objects list has {len(self.grid_objects)} entries")
-
-        # Verify all objects still exist
-        print("\nVerifying objects exist:")
-        for i, obj_info in enumerate(self.grid_objects[:3]):  # Check first 3
-            body_id = obj_info["body_id"]
-            try:
-                pos, orn = p.getBasePositionAndOrientation(body_id, physicsClientId=self.client_id)
-                print(f"  [OK] Body {body_id} exists at {pos}")
-            except:
-                print(f"  [ERROR] Body {body_id} NOT FOUND!")
-
-    def update_visibility(self):
-        """Show only current object, hide others."""
-        for i, obj_id in enumerate(self.objects):
-            if i == self.current_object_idx:
-                # Show object
-                p.changeVisualShape(obj_id, -1, rgbaColor=[1, 1, 1, 1])
-            else:
-                # Hide object
-                p.changeVisualShape(obj_id, -1, rgbaColor=[1, 1, 1, 0])
-
-    def apply_texture(self):
-        """Apply current texture to current object."""
-        texture_type = self.texture_types[self.current_texture_idx]
-        texture_id = self.textures[texture_type]
-        obj_id = self.objects[self.current_object_idx]
-
-        p.changeVisualShape(
-            obj_id,
-            -1,
-            textureUniqueId=texture_id,
-            specularColor=[0, 0, 0],  # No specular
-            physicsClientId=self.client_id
-        )
-
-    def update_camera(self):
-        """Update camera view."""
         p.resetDebugVisualizerCamera(
-            cameraDistance=self.camera_distance,
-            cameraYaw=self.camera_yaw,
-            cameraPitch=self.camera_pitch,
-            cameraTargetPosition=self.camera_target,
-            physicsClientId=self.client_id
+            cameraDistance=camera_distance,
+            cameraYaw=camera_yaw,
+            cameraPitch=camera_pitch,
+            cameraTargetPosition=camera_target,
+            physicsClientId=client_id
         )
 
-    def handle_keys(self):
-        """Handle keyboard input."""
-        keys = p.getKeyboardEvents()
+        # Disable GUI panels for cleaner view
+        p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0, physicsClientId=client_id)
 
-        # Common controls for both modes
-        # Camera rotation (Arrow keys)
-        if p.B3G_LEFT_ARROW in keys and keys[p.B3G_LEFT_ARROW] & p.KEY_IS_DOWN:
-            self.camera_yaw -= 2
-            self.update_camera()
-
-        if p.B3G_RIGHT_ARROW in keys and keys[p.B3G_RIGHT_ARROW] & p.KEY_IS_DOWN:
-            self.camera_yaw += 2
-            self.update_camera()
-
-        if p.B3G_UP_ARROW in keys and keys[p.B3G_UP_ARROW] & p.KEY_IS_DOWN:
-            self.camera_pitch = min(self.camera_pitch + 2, 89)
-            self.update_camera()
-
-        if p.B3G_DOWN_ARROW in keys and keys[p.B3G_DOWN_ARROW] & p.KEY_IS_DOWN:
-            self.camera_pitch = max(self.camera_pitch - 2, -89)
-            self.update_camera()
-
-        # Zoom (+ and -)
-        if ord('+') in keys and keys[ord('+')] & p.KEY_IS_DOWN:
-            self.camera_distance = max(0.3, self.camera_distance - 0.1)
-            self.update_camera()
-
-        if ord('-') in keys and keys[ord('-')] & p.KEY_IS_DOWN:
-            self.camera_distance = min(5.0, self.camera_distance + 0.1)
-            self.update_camera()
-
-        # Reset view (R)
-        if ord('r') in keys and keys[ord('r')] & p.KEY_WAS_TRIGGERED:
-            if self.show_all:
-                self.camera_yaw = 45
-                self.camera_pitch = -30
-                self.camera_distance = 2.5
-            else:
-                self.camera_yaw = 45
-                self.camera_pitch = -30
-                self.camera_distance = 0.8
-            self.update_camera()
-            print("View reset")
-
-        # Quit (Q)
-        if ord('q') in keys and keys[ord('q')] & p.KEY_WAS_TRIGGERED:
-            return False
-
-        # Interactive mode controls (only if not show_all)
-        if not self.show_all:
-            # Texture switching (1/2/3)
-            if ord('1') in keys and keys[ord('1')] & p.KEY_WAS_TRIGGERED:
-                self.current_texture_idx = 0
-                self.apply_texture()
-                print(f"Texture: {self.texture_types[self.current_texture_idx]}")
-
-            if ord('2') in keys and keys[ord('2')] & p.KEY_WAS_TRIGGERED:
-                self.current_texture_idx = 1
-                self.apply_texture()
-                print(f"Texture: {self.texture_types[self.current_texture_idx]}")
-
-            if ord('3') in keys and keys[ord('3')] & p.KEY_WAS_TRIGGERED:
-                self.current_texture_idx = 2
-                self.apply_texture()
-                print(f"Texture: {self.texture_types[self.current_texture_idx]}")
-
-            # Shape cycling (Space)
-            if ord(' ') in keys and keys[ord(' ')] & p.KEY_WAS_TRIGGERED:
-                self.current_object_idx = (self.current_object_idx + 1) % len(self.objects)
-                self.update_visibility()
-                self.apply_texture()
-                print(f"Shape: {self.object_names[self.current_object_idx]}")
-
-        return True
-
-    def run(self):
-        """Main loop."""
+        # Wait for user to press Q with camera controls
+        import time
         try:
-            print("\nViewer is running. Press Q to quit.")
             while True:
-                # No physics simulation needed (objects are static)
-                time.sleep(1.0 / 60.0)
+                # Check if connection is still alive
+                if not p.isConnected(physicsClientId=client_id):
+                    print("\nWindow closed by user")
+                    return None
 
-                if not self.handle_keys():
+                keys = p.getKeyboardEvents(physicsClientId=client_id)
+
+                # Quit
+                if ord('q') in keys and keys[ord('q')] & p.KEY_IS_DOWN:
+                    print("\nQuitting...")
                     break
 
-        finally:
-            p.disconnect()
-            print("\nTexture tester closed.")
+                # Move target with arrow keys (XY plane)
+                if p.B3G_LEFT_ARROW in keys and keys[p.B3G_LEFT_ARROW] & p.KEY_IS_DOWN:
+                    camera_target[0] -= 0.05
+                    p.resetDebugVisualizerCamera(camera_distance, camera_yaw, camera_pitch, camera_target, physicsClientId=client_id)
 
+                if p.B3G_RIGHT_ARROW in keys and keys[p.B3G_RIGHT_ARROW] & p.KEY_IS_DOWN:
+                    camera_target[0] += 0.05
+                    p.resetDebugVisualizerCamera(camera_distance, camera_yaw, camera_pitch, camera_target, physicsClientId=client_id)
 
-def main():
-    import argparse
+                if p.B3G_UP_ARROW in keys and keys[p.B3G_UP_ARROW] & p.KEY_IS_DOWN:
+                    camera_target[1] += 0.05
+                    p.resetDebugVisualizerCamera(camera_distance, camera_yaw, camera_pitch, camera_target, physicsClientId=client_id)
 
-    parser = argparse.ArgumentParser(description="Test textures on primitive shapes")
-    parser.add_argument("--show-all", action="store_true", help="Show all shapes in grid layout")
-    args = parser.parse_args()
+                if p.B3G_DOWN_ARROW in keys and keys[p.B3G_DOWN_ARROW] & p.KEY_IS_DOWN:
+                    camera_target[1] -= 0.05
+                    p.resetDebugVisualizerCamera(camera_distance, camera_yaw, camera_pitch, camera_target, physicsClientId=client_id)
 
-    tester = TextureTester(show_all=args.show_all)
-    tester.run()
+                # Move target up/down with [ and ]
+                if ord('[') in keys and keys[ord('[')] & p.KEY_IS_DOWN:
+                    camera_target[2] -= 0.05
+                    p.resetDebugVisualizerCamera(camera_distance, camera_yaw, camera_pitch, camera_target, physicsClientId=client_id)
+
+                if ord(']') in keys and keys[ord(']')] & p.KEY_IS_DOWN:
+                    camera_target[2] += 0.05
+                    p.resetDebugVisualizerCamera(camera_distance, camera_yaw, camera_pitch, camera_target, physicsClientId=client_id)
+
+                # Reset view with Space
+                if ord(' ') in keys and keys[ord(' ')] & p.KEY_WAS_TRIGGERED:
+                    camera_distance = 2.5
+                    camera_yaw = 45
+                    camera_pitch = -30
+                    camera_target = [0, 0, 0.3]
+                    p.resetDebugVisualizerCamera(camera_distance, camera_yaw, camera_pitch, camera_target, physicsClientId=client_id)
+                    print("Camera reset")
+
+                time.sleep(0.01)
+        except KeyboardInterrupt:
+            print("\nInterrupted by user")
+            return None
+
+        # Get current camera view for screenshot
+        debug_info = p.getDebugVisualizerCamera(physicsClientId=client_id)
+        view_matrix = p.computeViewMatrixFromYawPitchRoll(
+            cameraTargetPosition=debug_info[11],
+            distance=debug_info[10],
+            yaw=debug_info[8],
+            pitch=debug_info[9],
+            roll=0,
+            upAxisIndex=2
+        )
+    else:
+        # Automatic screenshot mode
+        view_matrix = p.computeViewMatrixFromYawPitchRoll(
+            cameraTargetPosition=[0, 0, 0.3],
+            distance=2.5,
+            yaw=45,
+            pitch=-30,
+            roll=0,
+            upAxisIndex=2
+        )
+    projection_matrix = p.computeProjectionMatrixFOV(
+        fov=60,
+        aspect=width / height,
+        nearVal=0.1,
+        farVal=100.0
+    )
+
+    # Capture with proper lighting
+    img_arr = p.getCameraImage(
+        width, height, view_matrix, projection_matrix,
+        renderer=p.ER_BULLET_HARDWARE_OPENGL,
+        lightDirection=[0, 0, -1],
+        lightColor=[1, 1, 1],
+        lightDistance=100,
+        shadow=0,
+        lightAmbientCoeff=0.8,
+        lightDiffuseCoeff=0.2,
+        lightSpecularCoeff=0.0,
+        physicsClientId=client_id
+    )
+
+    rgb_array = np.array(img_arr[2], dtype=np.uint8).reshape(height, width, 4)[:, :, :3]
+
+    screenshot_path = Path("all_textures_grid.png")
+    Image.fromarray(rgb_array).save(screenshot_path)
+    print(f"\nSaved: {screenshot_path}")
+    print(f"  Resolution: {width}x{height}")
+    print(f"  Objects: 24 (8 shapes x 3 textures)")
+    print(f"  Layout: 4 columns x 2 rows")
+    print(f"  Each shape shows: red (left), mixed (center), green (right)")
+    print(f"\nNOTE: Using real primitive objects (Object_01 - Object_08) with procedural UV coordinates")
+
+    p.disconnect(client_id)
+    return screenshot_path
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Generate texture grid visualization")
+    parser.add_argument("--gui", action="store_true", help="Open interactive GUI viewer")
+    args = parser.parse_args()
+
+    if args.gui:
+        print("=== Interactive Texture Viewer ===\n")
+    else:
+        print("=== Generating All Textures Grid ===\n")
+
+    capture_all_textures(gui_mode=args.gui)

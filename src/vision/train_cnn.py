@@ -10,10 +10,14 @@ from tqdm import tqdm
 import sys
 import numpy as np
 import json
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.metrics import f1_score
 
 # Обязательно добавляем корень проекта в sys.path
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
+from src.vision.metrics import get_accuracy_difference
 from src.vision.models import NetLoader
 import config
 
@@ -29,14 +33,11 @@ class NBVDataset(Dataset):
                 for rgb_path in class_dir.glob("*_rgb.png"):
                     sample_name = rgb_path.name.replace("_rgb.png", "")
                     depth_path = class_dir / f"{sample_name}_depth.npy"
-                    mask_path = class_dir / f"{sample_name}_mask.png"
                     meta_path = class_dir / f"{sample_name}_meta.json"
-                    
-                    if depth_path.exists() and mask_path.exists() and meta_path.exists():
+                    if depth_path.exists() and meta_path.exists():
                         self.samples.append({
                             "rgb": rgb_path,
                             "depth": depth_path,
-                            "mask": mask_path,
                             "meta": meta_path,
                             "label": class_id
                         })
@@ -55,10 +56,6 @@ class NBVDataset(Dataset):
         # Stack RGB + D -> [4, H, W]
         image_4ch = np.concatenate([rgb.transpose(2,0,1), depth_normalized[np.newaxis, :, :]], axis=0)
         
-        # 2. Load Mask [1, H, W]
-        mask = np.array(Image.open(s["mask"]).convert('L')).astype(np.float32) / 255.0
-        mask = mask[np.newaxis, :, :] 
-        
         # 3. Load Vector (From meta)
         import json
         with open(s["meta"], "r") as f:
@@ -69,12 +66,43 @@ class NBVDataset(Dataset):
         vector = np.zeros(15, dtype=np.float32)
         vector[:3] = meta["cam_eye"]
         vector[3:6] = meta["target_pos"]
-        # 나머지 9개는 0으로 채움 (joints etc)
         
-        return torch.FloatTensor(image_4ch), torch.FloatTensor(vector), torch.LongTensor([s["label"]]).squeeze(), torch.FloatTensor(mask)
+        return torch.FloatTensor(image_4ch), torch.FloatTensor(vector), torch.LongTensor([s["label"]]).squeeze()
+
+def plot_learning_curves(csv_path, png_path, window_size):
+    if not os.path.exists(csv_path):
+        return
+    df = pd.read_csv(csv_path)
+    if df.empty:
+        return
+    
+    metrics = ["Loss", "Accuracy", "F1_Score", "Acc_Diff"]
+    fig, axes = plt.subplots(len(metrics), 1, figsize=(10, 4 * len(metrics)))
+    if len(metrics) == 1:
+        axes = [axes]
+    phases = df['Phase'].unique()
+    
+    for i, metric in enumerate(metrics):
+        ax = axes[i]
+        for phase in phases:
+            phase_df = df[df['Phase'] == phase].reset_index(drop=True)
+            if phase_df.empty:
+                continue
+            ax.plot(phase_df.index, phase_df[metric], alpha=0.3, label=f"{phase} {metric} (raw)")
+            ma = phase_df[metric].rolling(window=window_size, min_periods=1).mean()
+            ax.plot(phase_df.index, ma, linewidth=2, label=f"{phase} {metric} (MA {window_size})")
+        ax.set_title(metric)
+        ax.set_xlabel("Batch Step")
+        ax.set_ylabel(metric)
+        ax.legend()
+        ax.grid(True)
+        
+    plt.tight_layout()
+    plt.savefig(png_path)
+    plt.close()
 
 def train_cnn():
-    dataset_dir = config.BASE_DIR / "dataset"
+    dataset_dir = config.DATASET_DIR
     if not dataset_dir.exists():
         print(f"Dataset directory not found at {dataset_dir}. Run dataset.py first.")
         return
@@ -94,39 +122,68 @@ def train_cnn():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
     
-    model = NetLoader.load("MultiModalNet", vector_dim=15).to(device)
+    model = NetLoader.load(config.CNN_ARCHITECTURE, num_classes=config.NUM_CLASSES, vector_dim=15).to(device)
     if config.CNN_RESUME and config.CNN_MODEL_PATH.exists():
         print(f"Resuming training from {config.CNN_MODEL_PATH}...")
         model.load_state_dict(torch.load(config.CNN_MODEL_PATH, map_location=device))
     
     criterion_cls = nn.CrossEntropyLoss()
-    criterion_seg = nn.BCEWithLogitsLoss()
     
     optimizer = optim.Adam(model.parameters(), lr=config.CNN_LR)
     
     num_epochs = config.CNN_EPOCHS
     best_val_loss = float('inf')
     
+    run_dir = config.get_run_dir("cnn_train")
+    csv_path = run_dir / "cnn_training_log.csv"
+    png_path = run_dir / "cnn_learning_curve.png"
+    
+    # Initialize empty CSV if starting fresh
+    if not config.CNN_RESUME or not csv_path.exists():
+        pd.DataFrame(columns=["Epoch", "Batch", "Phase", "Loss", "Loss_Cls", "Accuracy", "F1_Score", "Acc_Diff"]).to_csv(csv_path, index=False)
+    
     for epoch in range(num_epochs):
         model.train()
         running_loss = 0.0
+        epoch_metrics = []
         
         train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs} [Train]")
-        for imgs, vecs, labels, masks in train_pbar:
-            imgs, vecs, labels, masks = imgs.to(device), vecs.to(device), labels.to(device), masks.to(device)
+        for batch_idx, (imgs, vecs, labels) in enumerate(train_pbar):
+            imgs, vecs, labels = imgs.to(device), vecs.to(device), labels.to(device)
             
             optimizer.zero_grad()
-            logits, pred_masks = model(imgs, vecs)
+            logits = model(imgs, vecs)
+            if isinstance(logits, tuple): logits = logits[0]
             
             loss_cls = criterion_cls(logits, labels)
-            loss_seg = criterion_seg(pred_masks, masks)
             
-            loss = loss_cls + loss_seg
+            loss = loss_cls
             loss.backward()
             optimizer.step()
             
+            # Metrics calculation
+            _, predicted = torch.max(logits.data, 1)
+            batch_acc = 100 * (predicted == labels).sum().item() / max(labels.size(0), 1)
+            
+            preds_np = predicted.cpu().numpy()
+            labels_np = labels.cpu().numpy()
+            batch_f1 = f1_score(labels_np, preds_np, average='macro', zero_division=0)
+            
+            acc_diff = get_accuracy_difference(logits).mean().item()
+            
+            epoch_metrics.append({
+                "Epoch": epoch + 1,
+                "Batch": batch_idx,
+                "Phase": "Train",
+                "Loss": loss.item(),
+                "Loss_Cls": loss_cls.item(),
+                "Accuracy": batch_acc,
+                "F1_Score": batch_f1,
+                "Acc_Diff": acc_diff
+            })
+            
             running_loss += loss.item() * imgs.size(0)
-            train_pbar.set_postfix(loss=f"{loss.item():.4f}", cls=f"{loss_cls.item():.2f}", seg=f"{loss_seg.item():.2f}")
+            train_pbar.set_postfix(loss=f"{loss.item():.4f}", cls=f"{loss_cls.item():.2f}")
             
         epoch_loss = running_loss / len(train_dataset)
         
@@ -138,28 +195,63 @@ def train_cnn():
         
         val_pbar = tqdm(val_loader, desc=f"Epoch {epoch+1}/{num_epochs} [Val]")
         with torch.no_grad():
-            for imgs, vecs, labels, masks in val_pbar:
-                imgs, vecs, labels, masks = imgs.to(device), vecs.to(device), labels.to(device), masks.to(device)
-                logits, pred_masks = model(imgs, vecs)
+            for batch_idx, (imgs, vecs, labels) in enumerate(val_pbar):
+                imgs, vecs, labels = imgs.to(device), vecs.to(device), labels.to(device)
+                logits = model(imgs, vecs)
+                if isinstance(logits, tuple): logits = logits[0]
                 
                 l_cls = criterion_cls(logits, labels)
-                l_seg = criterion_seg(pred_masks, masks)
-                val_loss += (l_cls + l_seg).item() * imgs.size(0)
+                batch_loss = l_cls
+                val_loss += batch_loss.item() * imgs.size(0)
                 
                 _, predicted = torch.max(logits.data, 1)
                 total += labels.size(0)
-                correct += (predicted == labels).sum().item()
+                batch_correct = (predicted == labels).sum().item()
+                correct += batch_correct
+                
+                # Metrics calculation
+                batch_acc = 100 * batch_correct / max(labels.size(0), 1)
+                
+                preds_np = predicted.cpu().numpy()
+                labels_np = labels.cpu().numpy()
+                batch_f1 = f1_score(labels_np, preds_np, average='macro', zero_division=0)
+                
+                acc_diff = get_accuracy_difference(logits).mean().item()
+                
+                epoch_metrics.append({
+                    "Epoch": epoch + 1,
+                    "Batch": batch_idx,
+                    "Phase": "Val",
+                    "Loss": batch_loss.item(),
+                    "Loss_Cls": l_cls.item(),
+                    "Accuracy": batch_acc,
+                    "F1_Score": batch_f1,
+                    "Acc_Diff": acc_diff
+                })
                 
         avg_val_loss = val_loss / len(val_dataset)
         val_acc = 100 * correct / max(total, 1)
         print(f"Epoch {epoch+1}/{num_epochs} - Loss: {epoch_loss:.4f} - Val Loss: {avg_val_loss:.4f} - Val Acc: {val_acc:.2f}%")
         
+        # Save metrics and plot
+        pd.DataFrame(epoch_metrics).to_csv(csv_path, mode='a', header=False, index=False)
+        plot_learning_curves(csv_path, png_path, config.PLOT_MOVING_AVERAGE_WINDOW)
+        
+        # Save best weights
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
-            config.CNN_WEIGHTS_DIR.mkdir(exist_ok=True)
-            torch.save(model.state_dict(), config.CNN_MODEL_PATH)
+            config.CNN_WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)
             
-    print(f"Training complete. Best model saved to {config.CNN_MODEL_PATH}")
+            torch.save(model.state_dict(), config.CNN_WEIGHTS_DIR / config.CNN_BEST_MODEL_NAME)
+            torch.save(model.state_dict(), run_dir / config.CNN_BEST_MODEL_NAME)
+            
+        # Save last weights
+        torch.save(model.state_dict(), config.CNN_WEIGHTS_DIR / config.CNN_LAST_MODEL_NAME)
+        torch.save(model.state_dict(), run_dir / config.CNN_LAST_MODEL_NAME)
+            
+    print(f"Training complete.")
+    print(f"Last model saved to {run_dir / config.CNN_LAST_MODEL_NAME}")
+    print(f"Best model saved to {config.CNN_WEIGHTS_DIR / config.CNN_BEST_MODEL_NAME}")
 
 if __name__ == "__main__":
     train_cnn()

@@ -30,34 +30,54 @@ def train():
     args = config.get_args()
     
     # Setup paths
-    run_id = str(uuid.uuid4())[:8]
-    run_dir = config.RUNS_DIR / run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
+    run_dir = None
+    if args.load != "none":
+        run_dir = config.get_latest_rl_run_dir()
+        if run_dir:
+            print(f"Resuming from existing run: {run_dir.name}")
+        else:
+            print(f"No previous runs found for mode={config.OBJECT_MODE}. Starting fresh.")
+    
+    if run_dir is None:
+        run_dir = config.get_run_dir("rl_train")
+        print(f"Starting new run: {run_dir.name}")
+
+    run_id = run_dir.name
     video_dir = run_dir / "videos"
     video_dir.mkdir(parents=True, exist_ok=True)
     
     # Custom JSON Logger
     logger = Logger(run_dir)
-    logger.copy_config()
+    logger.copy_config() 
     
     # Load CNN
-    vision_model = NetLoader.load()
-    # If weights exist for vision model, load them here
-    # vision_model.load_state_dict(torch.load("..."))
+    vision_model = NetLoader.load(arch=config.CNN_ARCHITECTURE, num_classes=config.NUM_CLASSES, vector_dim=15)
+    if config.CNN_LOAD_MODE == "best" and config.CNN_MODEL_PATH.exists():
+        print(f"Loading vision weights from {config.CNN_MODEL_PATH}")
+        vision_model.load_state_dict(torch.load(config.CNN_MODEL_PATH, map_location="cpu"))
+    vision_model.eval()
     
     # Create env
-    env = DummyVecEnv([make_env(vision_model, args.no_arm, args.headless)])
+    env = DummyVecEnv([make_env(vision_model, args.no_arm, not args.gui)])
     eval_env = DummyVecEnv([make_env(vision_model, args.no_arm, True)])
     
     agent = NBVAgent(env)
     
     # Load if specified
-    if args.load != "none":
-        # Load logic if picking specific run dir (would need param or find latest)
-        print(f"Loading {args.load} weights not fully implemented without specific run_id. Training from scratch.")
-        pass
-
-    callback = NBVCallback(eval_env, logger, eval_freq=config.EVAL_FREQ, n_eval_episodes=config.N_EVAL_EPISODES, save_path=str(run_dir))
+    if args.load != "none" and run_dir is not None:
+        model_name = "best_policy" if args.load == "best" else "last_policy"
+        model_path = run_dir / model_name
+        if (model_path.with_suffix(".zip")).exists():
+            print(f"Loading RL weights from {model_path}...")
+            agent.load(str(model_path))
+        else:
+            print(f"Warning: Weights {model_name} not found in {run_dir}. Training from current state.")
+    from stable_baselines3.common.callbacks import CallbackList
+    from src.rl.callbacks import CnnLoggingCallback
+    
+    eval_callback = NBVCallback(eval_env, logger, eval_freq=config.EVAL_FREQ, n_eval_episodes=config.N_EVAL_EPISODES, save_path=str(run_dir))
+    cnn_callback = CnnLoggingCallback(run_dir)
+    callback = CallbackList([eval_callback, cnn_callback])
     
     try:
         print(f"Starting training run: {run_id}")
@@ -71,9 +91,14 @@ def train():
         # Plotting learning curves
         import matplotlib.pyplot as plt
         import json
-        with open(logger.json_path, 'r') as f:
-            logs = json.load(f)
-            
+        
+        # Loading logs from Logger object directly if possible, or from file
+        logs = logger.logs
+        
+        if not logs and os.path.exists(logger.jsonl_path):
+            with open(logger.jsonl_path, 'r') as f:
+                logs = [json.loads(line) for line in f if line.strip()]
+                
         if logs:
             steps = [l["step"] for l in logs]
             rewards = [l["reward"] for l in logs]
@@ -104,6 +129,8 @@ def train():
             plt.close()
             
             print("Plots saved.")
+        else:
+            print("Logs are empty or not found, skipping plot generation.")
 
 if __name__ == "__main__":
     train()

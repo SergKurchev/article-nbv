@@ -115,21 +115,19 @@ class NBVEnv(gym.Env):
             robot_urdf = self.asset_loader.load_robot()
             self.robot = Robot(self.client_id, robot_urdf)
             self.robot.reset()
-            
-        # Select target object
+
+        # Generate scene based on SCENE_STAGE
+        target_objects = self.asset_loader.generate_scene()
+
+        # For Stage 1, use single object as target
+        # For Stage 2/3, select first object as primary target (for now)
+        self.target_obj_id = target_objects[0]
         self.current_class_id = self.np_random.integers(0, config.NUM_CLASSES)
 
-        # Determine texture type based on class_id (3-class system)
-        texture_type = ['red', 'mixed', 'green'][self.current_class_id % 3]
-
-        self.target_obj_id = self.asset_loader.load_target_object(self.current_class_id, texture_type=texture_type)
         if self.no_arm:
             # Let it float
             p.changeDynamics(self.target_obj_id, -1, mass=0)
-            
-        # Generate obstacles
-        self.asset_loader.generate_obstacles()
-        
+
         # Wait for settling
         for _ in range(10):
             p.stepSimulation(physicsClientId=self.client_id)
@@ -172,22 +170,23 @@ class NBVEnv(gym.Env):
         
         # check collisions with obstacles (bad)
         moving_body_id = self.target_obj_id if self.no_arm else self.robot.robot_id
-        
+
         collision = False
-        
-        # 1. Проверяем столкновения со всеми препятствиями
+
+        # 1. Check collisions with all obstacles
         for obs_id in self.asset_loader.obstacles:
-            # getClosestPoints с distance=0.01 проверяет геометрию в радиусе 1 см (даже если масса = 0)
             pts = p.getClosestPoints(bodyA=moving_body_id, bodyB=obs_id, distance=0.01, physicsClientId=self.client_id)
             if pts:
                 collision = True
                 break
-                
-        # 2. Если двигается робот, он тоже НЕ должен врезаться в целевой объект на столе
+
+        # 2. If robot is moving, check collision with all target objects
         if not self.no_arm and not collision:
-            pts = p.getClosestPoints(bodyA=self.robot.robot_id, bodyB=self.target_obj_id, distance=0.01, physicsClientId=self.client_id)
-            if pts:
-                collision = True
+            for obj_id in self.asset_loader.target_objects:
+                pts = p.getClosestPoints(bodyA=self.robot.robot_id, bodyB=obj_id, distance=0.01, physicsClientId=self.client_id)
+                if pts:
+                    collision = True
+                    break
 
                 
         obs = self._get_obs()

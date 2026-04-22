@@ -147,6 +147,93 @@ All artifacts produced during training and evaluation are annotated following st
 uv sync
 ```
 
+### Генерация примитивов (Primitive Generation)
+Перед генерацией датасета необходимо создать 8 примитивных форм. Скрипт `src/data/generate_primitives.py` процедурно генерирует все формы:
+
+```bash
+# Генерация всех 8 примитивных форм
+uv run python src/data/generate_primitives.py
+```
+
+**Генерируемые объекты:**
+- `Object_01` - Сфера (Sphere)
+- `Object_02` - Куб (Cube)
+- `Object_03` - Вытянутый параллелепипед (Elongated Box)
+- `Object_04` - Пирамида (Pyramid)
+- `Object_05` - Конус (Cone)
+- `Object_06` - Цилиндр (Cylinder)
+- `Object_07` - Песочные часы (Hourglass - двойной конус)
+- `Object_08` - Октаэдр (Octahedron - двойная пирамида)
+
+**Структура вывода:**
+```
+src/data/objects/primitives/
+├── Object_01/
+│   ├── Object_01.STL      # ASCII STL для визуализации
+│   ├── mesh.json          # Стабильный формат для PyBullet
+│   └── texture.png        # Копируется из родительской папки
+├── Object_02/
+└── ...
+```
+
+**Особенности реализации:**
+- Двойной формат вывода (STL + JSON) для стабильности загрузки
+- Фильтрация вырожденных треугольников (дубликаты вершин, нулевая площадь)
+- Корректное вычисление нормалей через векторное произведение
+- Автоматическое масштабирование до 15см максимального размера в `asset_loader`
+
+### Этапы генерации сцен (Scene Generation Stages)
+
+Проект поддерживает три прогрессивных этапа сложности сцены:
+
+**Этап 1: Один объект (Baseline)**
+- 1 объект в фиксированной позиции `[0.5, 0.0, 0.2]`
+- Без препятствий
+- Для начального обучения и тестирования
+
+**Этап 2: Множество объектов**
+- 2-10 объектов с равномерным пространственным распределением
+- Без препятствий
+- Размещение без коллизий (мин. расстояние: 0.2м)
+- Для обучения мультиобъектной классификации
+
+**Этап 3: Множество объектов + препятствия**
+- 2-10 объектов + 1-5 препятствий
+- Равномерное пространственное распределение для обоих типов
+- Для обработки окклюзий и активного поиска
+
+**Конфигурация** (в `config.py`):
+```python
+SCENE_STAGE = 1  # Опции: 1, 2, 3
+
+# Параметры для этапов 2 и 3
+MIN_OBJECTS = 2
+MAX_OBJECTS = 10
+MIN_OBSTACLES = 1
+MAX_OBSTACLES = 5
+
+# Пространственные границы
+SCENE_BOUNDS_X_MIN = 0.2
+SCENE_BOUNDS_X_MAX = 0.8
+SCENE_BOUNDS_Y_MIN = -0.3
+SCENE_BOUNDS_Y_MAX = 0.3
+SCENE_BOUNDS_Z_MIN = 0.05
+SCENE_BOUNDS_Z_MAX = 0.4
+```
+
+**Тестирование этапов:**
+```bash
+# Тест конкретного этапа
+uv run python scripts/test_scene_stages.py --stage 1
+uv run python scripts/test_scene_stages.py --stage 2
+uv run python scripts/test_scene_stages.py --stage 3
+
+# Тест всех этапов последовательно
+uv run python scripts/test_scene_stages.py --all
+```
+
+Подробная документация: `SCENE_STAGES.md`
+
 ### Генерация датасета и предобучение CNN (Computer Vision)
 Генерация датасета с правильной структурой для предварительного обучения классификатора `MultiModalNet`:
 ```bash

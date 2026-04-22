@@ -13,6 +13,10 @@ class NBVCallback(BaseCallback):
         self.save_path = save_path
         self.best_mean_obj = -np.inf
         
+        # Load best obj for continuation if resuming
+        if logger.logs:
+            self.best_mean_obj = max([l["obj_metric"] for l in logger.logs])
+        
     def _on_step(self) -> bool:
         if self.n_calls % self.eval_freq == 0:
             rewards = []
@@ -55,5 +59,56 @@ class NBVCallback(BaseCallback):
                     self.model.save(os.path.join(self.save_path, "best_policy"))
                     if self.verbose:
                         print("Saved new best model.")
+                        print("Saved new best model.")
                         
+        return True
+
+class CnnLoggingCallback(BaseCallback):
+    def __init__(self, run_dir, verbose=0):
+        super(CnnLoggingCallback, self).__init__(verbose)
+        self.run_dir = run_dir
+        self.csv_path = os.path.join(run_dir, "train_cnn_probs.csv")
+        self.episode_count = 0
+        
+        # Resume episode count if file exists
+        if os.path.exists(self.csv_path):
+            try:
+                import pandas as pd
+                df = pd.read_csv(self.csv_path)
+                if not df.empty:
+                    self.episode_count = int(df["Episode"].max()) + 1
+            except Exception:
+                pass
+                
+        self.current_episode_probs = []
+        
+    def _on_step(self) -> bool:
+        infos = self.locals.get("infos", [])
+        if len(infos) > 0 and "cnn_probs" in infos[0]:
+            self.current_episode_probs.append(infos[0]["cnn_probs"])
+            
+        dones = self.locals.get("dones", [])
+        if len(dones) > 0 and dones[0]:
+            import pandas as pd
+            import config
+            
+            if len(self.current_episode_probs) > 0:
+                row = {"Episode": self.episode_count}
+                num_classes = config.NUM_CLASSES
+                
+                for step_idx in range(config.MAX_STEPS_PER_EPISODE):
+                    for class_idx in range(num_classes):
+                        if step_idx < len(self.current_episode_probs):
+                            val = self.current_episode_probs[step_idx][class_idx]
+                        else:
+                            val = np.nan
+                        row[f"Step{step_idx}_Class{class_idx}"] = val
+                        
+                df = pd.DataFrame([row])
+                file_exists = os.path.exists(self.csv_path)
+                df.to_csv(self.csv_path, mode='a', header=not file_exists, index=False)
+                
+            self.episode_count += 1
+            self.current_episode_probs = []
+            
         return True

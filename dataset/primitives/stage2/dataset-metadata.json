@@ -1,0 +1,17 @@
+{
+  "title": "NBV Stage 2 Dataset - Multi-Object",
+  "id": "sergeykurchev/nbv-stage2-dataset",
+  "licenses": [
+    {
+      "name": "CC0-1.0"
+    }
+  ],
+  "description": "\n# NBV Stage 2 Dataset\n\nNext-Best-View (NBV) training dataset for active object classification.\n\n## Stage 2: Multiple Objects\n\n### Scene Configuration\n- **Objects per scene**: 2-10 (random placement)\n- **Obstacles**: 0\n- **Object classes**: 8 primitive shapes (cube, sphere, cylinder, cone, torus, capsule, ellipsoid, pyramid)\n- **Textures**: 3 types (red, mixed gradient, green)\n\n### Data Format\n\nEach sample is a directory `sample_XXXXX/` containing:\n\n- `rgb/` - RGB images (224x224 PNG)\n- `depth/` - Depth maps (224x224 NPY, float32, meters)\n- `masks/` - Instance segmentation masks (224x224 PNG, colored)\n- `labels/` - YOLO format bounding boxes (TXT)\n- `cameras.json` - Camera parameters (position, rotation, intrinsics)\n- `color_map.json` - Instance ID to class mapping\n\n### Camera Views\n\n- **Views per sample**: ~20 (spherical orbit around objects)\n- **Camera distance**: 0.3-0.6 meters\n- **Elevation angle**: 0.1-1.37 radians\n- **Image size**: 224x224 pixels\n\n### Usage\n\n```python\nimport json\nimport numpy as np\nfrom PIL import Image\n\n# Load a sample\nsample_dir = \"sample_00000\"\n\n# Load RGB\nrgb = Image.open(sample_dir + \"/rgb/00000.png\")\n\n# Load depth\ndepth = np.load(sample_dir + \"/depth/00000.npy\")\n\n# Load metadata\nwith open(sample_dir + \"/cameras.json\") as f:\n    cameras = json.load(f)\n\nwith open(sample_dir + \"/color_map.json\") as f:\n    color_map = json.load(f)\n```\n\n### Training Models\n\nThis dataset is designed for training:\n- **Vision models**: MultiModalNet, LightweightODIN (ODIN-inspired)\n- **RL agents**: SAC-based Next-Best-View policy\n\nSee project repository for training scripts.\n\n### Citation\n\nIf you use this dataset, please cite:\n```\nNBV with Obstacles and Robot - Skoltech Reinforcement Learning Project\n```\n",
+  "keywords": [
+    "computer-vision",
+    "3d",
+    "robotics",
+    "active-learning",
+    "next-best-view"
+  ]
+}

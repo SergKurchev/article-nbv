@@ -57,9 +57,33 @@ OBJECTS_DIR = DATA_DIR / "objects" / OBJECT_MODE
 DATASET_DIR = BASE_DIR / "dataset" / OBJECT_MODE
 TEXTURE_PATH = DATA_DIR / "objects" / "texture.png" # Common texture at root
 
-# Obstacles per reset
-MIN_OBSTACLES = 0
-MAX_OBSTACLES = 0
+# --- Scene Generation Stage ---
+# Stage 1: Single object, no obstacles
+# Stage 2: Multiple objects (2-10), no obstacles
+# Stage 3: Multiple objects (2-10) + obstacles
+SCENE_STAGE = 1  # Options: 1, 2, 3
+
+# Stage 2 & 3: Multi-object parameters
+MIN_OBJECTS = 2  # Minimum number of objects in multi-object scenes
+MAX_OBJECTS = 10  # Maximum number of objects in multi-object scenes
+
+# Stage 3: Obstacle parameters
+MIN_OBSTACLES = 1  # Minimum number of obstacles
+MAX_OBSTACLES = 5  # Maximum number of obstacles
+
+# Spatial distribution bounds for Stage 2 & 3
+# Objects and obstacles are placed within this volume
+SCENE_BOUNDS_X_MIN = 0.2  # Minimum X coordinate
+SCENE_BOUNDS_X_MAX = 0.8  # Maximum X coordinate
+SCENE_BOUNDS_Y_MIN = -0.3  # Minimum Y coordinate
+SCENE_BOUNDS_Y_MAX = 0.3  # Maximum Y coordinate
+SCENE_BOUNDS_Z_MIN = 0.15  # Minimum Z coordinate (above ground) - raised to prevent ground collision
+SCENE_BOUNDS_Z_MAX = 0.4  # Maximum Z coordinate
+
+# Collision detection for object placement
+SCENE_MIN_OBJECT_DISTANCE = 0.25  # Minimum distance between objects (meters) - increased for safety
+SCENE_MAX_PLACEMENT_ATTEMPTS = 100  # Maximum attempts to place object without collision - increased
+
 # Episode limits
 MAX_STEPS_PER_EPISODE = 10
 
@@ -126,23 +150,52 @@ TEXTURE_GREEN_COLOR = [0, 255, 0]
 # Gradient curve parameters
 TEXTURE_GRADIENT_TYPE = "curved"  # "linear" or "curved"
 TEXTURE_GRADIENT_ANGLE = 45.0  # Base angle for linear gradient (degrees)
-TEXTURE_GRADIENT_SHARPNESS = 0.5  # 0.0=smooth, 1.0=sharp transition
+TEXTURE_GRADIENT_SHARPNESS = 0.6  # 0.0=smooth, 1.0=sharp transition
+TEXTURE_GRADIENT_STEEPNESS = 30  # Sigmoid steepness for 3D rendering (20-50, higher=sharper)
 
 # Curved gradient parameters
-TEXTURE_CURVE_COMPLEXITY = 3  # Number of control points for Bezier curve (2-5)
-TEXTURE_CURVE_AMPLITUDE = 0.3  # Maximum curve deviation (0.0-0.5)
+TEXTURE_CURVE_COMPLEXITY = 10  # Number of control points for Bezier curve (2-10, higher=more curves)
+TEXTURE_CURVE_AMPLITUDE = 0.7  # Maximum curve deviation (0.0-0.5)
 TEXTURE_MIN_AREA_RATIO = 0.3  # Minimum area for each color (30%)
 TEXTURE_MAX_AREA_RATIO = 0.7  # Maximum area for each color (70%)
+
+# Curve positioning (to ensure gradient reaches edges)
+TEXTURE_CURVE_START_X_MIN = 0.1  # Minimum horizontal position for curve start (0.0-1.0)
+TEXTURE_CURVE_START_X_MAX = 0.9  # Maximum horizontal position for curve start (0.0-1.0)
+TEXTURE_CURVE_END_X_MIN = 0.1  # Minimum horizontal position for curve end (0.0-1.0)
+TEXTURE_CURVE_END_X_MAX = 0.9  # Maximum horizontal position for curve end (0.0-1.0)
+TEXTURE_CURVE_EXTENSION_TOP = 0.2  # Extend curve beyond top edge (fraction of size)
+TEXTURE_CURVE_EXTENSION_BOTTOM = 0.2  # Extend curve beyond bottom edge (fraction of size)
+
+# Bezier curve evaluation
+TEXTURE_BEZIER_SAMPLES = 200  # Number of points to sample along Bezier curve (higher=smoother)
+
+# Distance field optimization
+TEXTURE_DOWNSAMPLE_FACTOR = 4  # Downsample factor for distance field computation (2=4x faster, 3=9x faster, 4=16x faster)
+
+# Visualization
+TEXTURE_DEBUG_CURVE_WIDTH = 2  # Width of curve line in debug visualization
+TEXTURE_DEBUG_CURVE_SKIP = 5  # Draw every Nth point of curve (lower=more detailed)
+TEXTURE_DEBUG_CONTROL_POINT_RADIUS = 5  # Radius of control point circles in debug
+
+# Generation
+TEXTURE_MAX_GENERATION_ATTEMPTS = 50  # Maximum attempts to generate valid texture
 
 # Realism
 TEXTURE_NOISE_LEVEL = 0.0  # No noise for clean textures (0.0-0.2)
 
 # --- CNN Training ---
-CNN_ARCHITECTURE = "MultiModalNet"  # Options: "MultiModalNet", "LightweightODIN", "SimpleNet"
+CNN_ARCHITECTURE = "MultiModalNet"  # Options: "MultiModalNet", "LightweightODIN", "SimpleNet", "PointNet"
 CNN_LR = 1e-3
 CNN_BATCH_SIZE = 16
 CNN_EPOCHS = 10
 CNN_VAL_SPLIT = 0.2
+
+# --- PointNet Training ---
+POINTNET_NUM_POINTS = 1024  # Number of points to sample from each point cloud
+POINTNET_BATCH_SIZE = 32  # Batch size for PointNet training
+POINTNET_LR = 1e-3  # Learning rate
+POINTNET_EPOCHS = 50  # Number of training epochs
 
 CNN_WEIGHTS_RUN_NAME = None # Set to e.g. 'cnn_train_v1.0_5obj_20260323_202140' to load weights from a specific run, or None to use default 'weights' directory
 if CNN_WEIGHTS_RUN_NAME is not None:

@@ -1,20 +1,18 @@
 import torch
 import torch.nn.functional as F
 
-def get_accuracy_difference(logits, target_class_id):
+def get_accuracy_difference(logits, target_class_id=None):
     """
     Computes Accuracy Difference measure.
-    It is the difference between the probability of the target class
-    and the highest probability among incorrect classes.
+    It is the difference between the probability of the best (Top-1) class
+    and the alternative (Top-2) class.
     """
     probs = F.softmax(logits, dim=1)
     
-    # Target prob
-    target_prob = probs[0, target_class_id].item()
+    if probs.size(1) < 2:
+        return torch.zeros(probs.size(0), device=probs.device)
+        
+    top2_probs, _ = torch.topk(probs, 2, dim=1)
+    acc_diff = top2_probs[:, 0] - top2_probs[:, 1]
     
-    # Best err prob
-    probs_clone = probs.clone()
-    probs_clone[0, target_class_id] = -1.0
-    best_err_prob = probs_clone.max(dim=1)[0].item()
-    
-    return target_prob - best_err_prob
+    return acc_diff

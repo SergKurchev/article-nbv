@@ -1,0 +1,122 @@
+[
+  {
+    "color": [
+      255,
+      0,
+      0
+    ],
+    "instance_id": 0,
+    "category_id": 6,
+    "category_name": "target_object",
+    "texture_type": "green"
+  },
+  {
+    "color": [
+      245,
+      0,
+      0
+    ],
+    "instance_id": 1,
+    "category_id": 6,
+    "category_name": "target_object",
+    "texture_type": "green"
+  },
+  {
+    "color": [
+      235,
+      0,
+      0
+    ],
+    "instance_id": 2,
+    "category_id": 4,
+    "category_name": "target_object",
+    "texture_type": "red"
+  },
+  {
+    "color": [
+      225,
+      0,
+      0
+    ],
+    "instance_id": 3,
+    "category_id": 1,
+    "category_name": "target_object",
+    "texture_type": "red"
+  },
+  {
+    "color": [
+      215,
+      0,
+      0
+    ],
+    "instance_id": 4,
+    "category_id": 7,
+    "category_name": "target_object",
+    "texture_type": "red"
+  },
+  {
+    "color": [
+      205,
+      0,
+      0
+    ],
+    "instance_id": 5,
+    "category_id": 1,
+    "category_name": "target_object",
+    "texture_type": "red"
+  },
+  {
+    "color": [
+      195,
+      0,
+      0
+    ],
+    "instance_id": 6,
+    "category_id": 7,
+    "category_name": "target_object",
+    "texture_type": "red"
+  },
+  {
+    "color": [
+      185,
+      0,
+      0
+    ],
+    "instance_id": 7,
+    "category_id": 3,
+    "category_name": "target_object",
+    "texture_type": "green"
+  },
+  {
+    "color": [
+      175,
+      0,
+      0
+    ],
+    "instance_id": 8,
+    "category_id": 8,
+    "category_name": "target_object",
+    "texture_type": "mixed"
+  },
+  {
+    "color": [
+      165,
+      0,
+      0
+    ],
+    "instance_id": 9,
+    "category_id": 3,
+    "category_name": "target_object",
+    "texture_type": "green"
+  },
+  {
+    "color": [
+      0,
+      255,
+      0
+    ],
+    "instance_id": 10,
+    "category_id": 9,
+    "category_name": "robot"
+  }
+]

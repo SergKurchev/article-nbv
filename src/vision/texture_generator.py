@@ -1,61 +1,52 @@
-"""Procedural texture generation for object classification.
+"""Ultra-fast texture generator using optimized distance field with Numba JIT."""
 
-Generates three texture types:
-- red: Fully red texture (ripe objects)
-- mixed: Red-green curved gradient (partially ripe)
-- green: Fully green texture (unripe)
-"""
-
+import numpy as np
+from PIL import Image, ImageDraw
 import sys
 from pathlib import Path
 
-# Add parent directory to path for config import
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-
-import numpy as np
-from PIL import Image
 import config
 
-
-def generate_solid_texture(color, size):
-    """Generate solid color texture.
-
-    Args:
-        color: RGB tuple (e.g., [255, 0, 0])
-        size: Texture resolution (e.g., 512)
-
-    Returns:
-        PIL.Image: Generated texture
-    """
-    texture = np.zeros((size, size, 3), dtype=np.uint8)
-    texture[:, :] = color
-    return Image.fromarray(texture)
+try:
+    from numba import jit
+    NUMBA_AVAILABLE = True
+except ImportError:
+    NUMBA_AVAILABLE = False
+    # Fallback: no-op decorator
+    def jit(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
 
 
-def generate_bezier_control_points(complexity, amplitude, size):
-    """Generate random Bezier curve control points.
+def generate_bezier_control_points(complexity, amplitude, size, start_x_min, start_x_max,
+                                   end_x_min, end_x_max, extension_top, extension_bottom):
+    """Generate random Bezier curve control points with random orientation.
 
     Args:
-        complexity: Number of control points (2-5)
+        complexity: Number of control points (2-10)
         amplitude: Maximum curve deviation (0.0-0.5)
-        size: Texture resolution
+        size: Texture size in pixels
+        start_x_min: Minimum horizontal position for curve start (0.0-1.0)
+        start_x_max: Maximum horizontal position for curve start (0.0-1.0)
+        end_x_min: Minimum horizontal position for curve end (0.0-1.0)
+        end_x_max: Maximum horizontal position for curve end (0.0-1.0)
+        extension_top: Extend curve beyond top edge (fraction of size)
+        extension_bottom: Extend curve beyond bottom edge (fraction of size)
 
     Returns:
         np.ndarray: Control points array of shape (complexity, 2)
     """
-    complexity = max(2, min(5, complexity))
+    complexity = max(2, min(10, complexity))
 
-    # Start and end points on opposite edges
-    if np.random.rand() < 0.5:
-        # Vertical orientation
-        start = [0, np.random.uniform(0.2, 0.8) * size]
-        end = [size, np.random.uniform(0.2, 0.8) * size]
-    else:
-        # Horizontal orientation
-        start = [np.random.uniform(0.2, 0.8) * size, 0]
-        end = [np.random.uniform(0.2, 0.8) * size, size]
+    # Random angle for curve orientation (0 to 360 degrees)
+    angle = np.random.uniform(0, 2 * np.pi)
 
-    # Generate intermediate control points
+    # Generate curve along vertical direction first (from edge to edge)
+    start = [np.random.uniform(start_x_min, start_x_max) * size, -size * extension_top]
+    end = [np.random.uniform(end_x_min, end_x_max) * size, size * (1 + extension_bottom)]
+
     control_points = [start]
 
     for i in range(1, complexity - 1):
@@ -63,313 +54,388 @@ def generate_bezier_control_points(complexity, amplitude, size):
         base_x = start[0] + t * (end[0] - start[0])
         base_y = start[1] + t * (end[1] - start[1])
 
-        # Add random deviation perpendicular to line
-        dx = end[0] - start[0]
-        dy = end[1] - start[1]
-        length = np.sqrt(dx**2 + dy**2)
-
-        if length > 0:
-            perp_x = -dy / length
-            perp_y = dx / length
-        else:
-            perp_x, perp_y = 0, 0
-
+        # Add deviation perpendicular to the line
         deviation = np.random.uniform(-amplitude, amplitude) * size
 
-        control_points.append([
-            base_x + perp_x * deviation,
-            base_y + perp_y * deviation
-        ])
+        control_points.append([base_x + deviation, base_y])
 
     control_points.append(end)
 
-    return np.array(control_points)
+    control_points = np.array(control_points)
+
+    # Rotate around center
+    center = np.array([size / 2, size / 2])
+    rotation_matrix = np.array([
+        [np.cos(angle), -np.sin(angle)],
+        [np.sin(angle), np.cos(angle)]
+    ])
+
+    # Translate to origin, rotate, translate back
+    control_points = (control_points - center) @ rotation_matrix.T + center
+
+    return control_points
 
 
-def evaluate_bezier_curve(control_points, num_samples=1000):
-    """Evaluate Bezier curve at multiple points.
-
-    Args:
-        control_points: Array of control points (N, 2)
-        num_samples: Number of points to sample along curve
-
-    Returns:
-        np.ndarray: Curve points array of shape (num_samples, 2)
-    """
+def evaluate_bezier_curve_fast(control_points, num_samples=500):
+    """Fast Bezier curve evaluation using matrix operations."""
     n = len(control_points) - 1
-    t_values = np.linspace(0, 1, num_samples)
-    curve_points = []
+    t = np.linspace(0, 1, num_samples)
 
-    for t in t_values:
-        # De Casteljau's algorithm for Bezier curve evaluation
-        points = control_points.copy()
+    # Compute binomial coefficients
+    from math import comb
+    coeffs = np.array([comb(n, i) for i in range(n + 1)])
 
-        for r in range(1, n + 1):
-            for i in range(n - r + 1):
-                points[i] = (1 - t) * points[i] + t * points[i + 1]
+    # Compute Bernstein polynomials
+    bernstein = np.zeros((num_samples, n + 1))
+    for i in range(n + 1):
+        bernstein[:, i] = coeffs[i] * (t ** i) * ((1 - t) ** (n - i))
 
-        curve_points.append(points[0])
+    # Compute curve points
+    curve_points = bernstein @ control_points
 
-    return np.array(curve_points)
-
-
-def compute_distance_field(control_points, size):
-    """Compute signed distance field from Bezier curve.
-
-    Args:
-        control_points: Array of control points (N, 2)
-        size: Texture resolution
-
-    Returns:
-        np.ndarray: Distance field of shape (size, size)
-    """
-    # Evaluate curve at many points
-    curve_points = evaluate_bezier_curve(control_points, num_samples=2000)
-
-    # Create coordinate grid
-    y, x = np.mgrid[0:size, 0:size]
-    coords = np.stack([x, y], axis=-1)
-
-    # Compute minimum distance to curve for each pixel
-    distances = np.zeros((size, size))
-
-    for i in range(size):
-        for j in range(size):
-            point = coords[i, j]
-            dists = np.sqrt(np.sum((curve_points - point)**2, axis=1))
-            distances[i, j] = np.min(dists)
-
-    # Determine sign (which side of curve)
-    # Use cross product to determine side
-    curve_start = curve_points[0]
-    curve_end = curve_points[-1]
-    curve_vec = curve_end - curve_start
-
-    signs = np.zeros((size, size))
-    for i in range(size):
-        for j in range(size):
-            point = coords[i, j]
-            point_vec = point - curve_start
-            cross = curve_vec[0] * point_vec[1] - curve_vec[1] * point_vec[0]
-            signs[i, j] = 1 if cross > 0 else -1
-
-    return distances * signs
+    return curve_points
 
 
-def validate_area_ratio(distance_field, min_ratio, max_ratio):
-    """Check if area ratio constraints are satisfied.
+@jit(nopython=True, cache=True)
+def compute_distances_numba(pixels, curve_points):
+    """Numba-optimized distance computation.
 
     Args:
-        distance_field: Signed distance field
-        min_ratio: Minimum area ratio (e.g., 0.3)
-        max_ratio: Maximum area ratio (e.g., 0.7)
+        pixels: Array of pixel coordinates (N, 2)
+        curve_points: Array of curve points (M, 2)
 
     Returns:
-        bool: True if constraints satisfied
+        closest_indices: Index of closest curve point for each pixel (N,)
+        min_distances: Distance to closest curve point for each pixel (N,)
     """
-    total_pixels = distance_field.size
-    positive_pixels = np.sum(distance_field > 0)
-    ratio = positive_pixels / total_pixels
+    n_pixels = pixels.shape[0]
+    n_curve = curve_points.shape[0]
 
-    return min_ratio <= ratio <= max_ratio
+    closest_indices = np.zeros(n_pixels, dtype=np.int32)
+    min_distances = np.zeros(n_pixels, dtype=np.float32)
+
+    for i in range(n_pixels):
+        min_dist = 1e10
+        closest_idx = 0
+
+        for j in range(n_curve):
+            dx = pixels[i, 0] - curve_points[j, 0]
+            dy = pixels[i, 1] - curve_points[j, 1]
+            dist = np.sqrt(dx * dx + dy * dy)
+
+            if dist < min_dist:
+                min_dist = dist
+                closest_idx = j
+
+        closest_indices[i] = closest_idx
+        min_distances[i] = min_dist
+
+    return closest_indices, min_distances
 
 
-def apply_gradient(distance_field, color1, color2, sharpness):
-    """Apply gradient based on distance field.
+@jit(nopython=True, cache=True)
+def compute_signed_distances_numba(pixels, curve_points, normals, closest_indices, min_distances):
+    """Numba-optimized signed distance computation.
 
     Args:
-        distance_field: Signed distance field
-        color1: RGB tuple for negative side
-        color2: RGB tuple for positive side
-        sharpness: Gradient transition sharpness (0.0-1.0)
+        pixels: Pixel coordinates (N, 2)
+        curve_points: Curve points (M, 2)
+        normals: Normal vectors at curve points (M, 2)
+        closest_indices: Closest curve point indices (N,)
+        min_distances: Distances to closest points (N,)
 
     Returns:
-        np.ndarray: RGB texture array
+        signed_distances: Signed distances (N,)
     """
-    size = distance_field.shape[0]
+    n_pixels = pixels.shape[0]
+    signed_distances = np.zeros(n_pixels, dtype=np.float32)
 
-    # Normalize distances for gradient
-    max_dist = np.max(np.abs(distance_field))
-    if max_dist > 0:
-        normalized = distance_field / max_dist
+    for i in range(n_pixels):
+        idx = closest_indices[i]
+
+        # Vector from curve point to pixel
+        to_pixel_x = pixels[i, 0] - curve_points[idx, 0]
+        to_pixel_y = pixels[i, 1] - curve_points[idx, 1]
+
+        # Dot product with normal
+        dot = to_pixel_x * normals[idx, 0] + to_pixel_y * normals[idx, 1]
+
+        # Sign
+        sign = 1.0 if dot >= 0 else -1.0
+
+        signed_distances[i] = sign * min_distances[i]
+
+    return signed_distances
+
+
+def create_gradient_fast(curve_points, size, color1, color2, steepness, downsample_factor):
+    """Fast gradient using optimized distance field with downsampling and Numba JIT.
+
+    Args:
+        curve_points: Evaluated Bezier curve points
+        size: Texture size in pixels
+        color1: RGB color for one side of gradient
+        color2: RGB color for other side of gradient
+        steepness: Sigmoid steepness for transition sharpness
+        downsample_factor: Downsample factor for speed optimization
+
+    Returns:
+        np.ndarray: RGB texture array of shape (size, size, 3)
+    """
+    small_size = size // downsample_factor
+
+    # Create downsampled grid
+    y, x = np.mgrid[0:small_size, 0:small_size]
+    pixels = np.stack([x.ravel() * downsample_factor, y.ravel() * downsample_factor], axis=1).astype(np.float32)
+
+    # Convert curve points to float32 for numba
+    curve_points_f32 = curve_points.astype(np.float32)
+
+    # Compute distances to curve (Numba-optimized if available)
+    if NUMBA_AVAILABLE:
+        closest_indices, min_distances = compute_distances_numba(pixels, curve_points_f32)
     else:
-        normalized = distance_field
+        # Fallback: vectorized numpy
+        diff = pixels[:, np.newaxis, :] - curve_points_f32[np.newaxis, :, :]
+        distances = np.sqrt(np.sum(diff**2, axis=2))
+        closest_indices = np.argmin(distances, axis=1)
+        min_distances = distances[np.arange(len(pixels)), closest_indices]
 
-    # Use moderate steepness for visible but clear gradient
-    # Too steep (20) = almost no gradient visible
-    # Too soft (5) = muddy colors
-    # Sweet spot: 8-10
-    steepness = 8
+    # Compute tangents at curve points
+    tangents = np.zeros_like(curve_points_f32)
+    tangents[1:-1] = curve_points_f32[2:] - curve_points_f32[:-2]
+    tangents[0] = curve_points_f32[1] - curve_points_f32[0]
+    tangents[-1] = curve_points_f32[-1] - curve_points_f32[-2]
+
+    # Normalize tangents
+    tangent_lengths = np.sqrt(np.sum(tangents**2, axis=1, keepdims=True))
+    tangent_lengths = np.maximum(tangent_lengths, 1e-8)
+    tangents = tangents / tangent_lengths
+
+    # Compute normals (perpendicular to tangents)
+    normals = np.stack([-tangents[:, 1], tangents[:, 0]], axis=1).astype(np.float32)
+
+    # Compute signed distances (Numba-optimized if available)
+    if NUMBA_AVAILABLE:
+        signed_distances = compute_signed_distances_numba(
+            pixels, curve_points_f32, normals, closest_indices, min_distances
+        )
+    else:
+        # Fallback: vectorized numpy
+        closest_normals = normals[closest_indices]
+        closest_curve_points = curve_points_f32[closest_indices]
+        to_pixel = pixels - closest_curve_points
+        signs = np.sign(np.sum(to_pixel * closest_normals, axis=1))
+        signs[signs == 0] = 1
+        signed_distances = signs * min_distances
+
+    signed_distances = signed_distances.reshape(small_size, small_size)
+
+    # Normalize distances
+    max_dist = np.max(np.abs(signed_distances))
+    if max_dist > 0:
+        normalized = signed_distances / max_dist
+    else:
+        normalized = signed_distances
+
+    # Apply sigmoid for smooth transition
     blend = 1 / (1 + np.exp(-steepness * normalized))
 
-    # Create RGB texture
-    texture = np.zeros((size, size, 3), dtype=np.uint8)
-
-    # Apply gradient per channel
+    # Create RGB texture (downsampled)
+    texture_small = np.zeros((small_size, small_size, 3), dtype=np.uint8)
+    color1 = np.array(color1)
+    color2 = np.array(color2)
     for c in range(3):
-        texture[:, :, c] = (
+        texture_small[:, :, c] = (
             color1[c] * (1 - blend) + color2[c] * blend
         ).astype(np.uint8)
 
-    return texture
+    # Upsample to full size using PIL (fast and smooth)
+    texture_img = Image.fromarray(texture_small)
+    texture_img = texture_img.resize((size, size), Image.BILINEAR)
+    texture_array = np.array(texture_img)
+
+    return texture_array
 
 
-def add_noise(texture, noise_level):
-    """Add realistic noise to texture.
-
-    Args:
-        texture: PIL.Image or numpy array
-        noise_level: Noise strength (0.0-0.2)
-
-    Returns:
-        PIL.Image: Noisy texture
-    """
-    if isinstance(texture, Image.Image):
-        texture_array = np.array(texture)
-    else:
-        texture_array = texture
-
-    if noise_level <= 0:
-        return Image.fromarray(texture_array) if isinstance(texture, np.ndarray) else texture
-
-    noise = np.random.normal(0, noise_level * 255, texture_array.shape)
-    noisy = np.clip(texture_array.astype(float) + noise, 0, 255).astype(np.uint8)
-
-    return Image.fromarray(noisy)
-
-
-def generate_curved_gradient_texture(color1, color2, complexity, amplitude, sharpness, size, min_ratio, max_ratio, max_attempts=10):
+def generate_curved_gradient_texture(
+    color1, color2, complexity, amplitude, size,
+    min_ratio, max_ratio, steepness,
+    start_x_min, start_x_max, end_x_min, end_x_max,
+    extension_top, extension_bottom, bezier_samples, downsample_factor,
+    max_attempts=10, visualize=False
+):
     """Generate texture with curved gradient boundary.
 
     Args:
-        color1: RGB tuple for first color
-        color2: RGB tuple for second color
-        complexity: Number of Bezier control points (2-5)
-        amplitude: Maximum curve deviation (0.0-0.5)
-        sharpness: Gradient transition sharpness (0.0-1.0)
-        size: Texture resolution
-        min_ratio: Minimum area for each color (e.g., 0.3)
-        max_ratio: Maximum area for each color (e.g., 0.7)
+        color1: RGB color for one side
+        color2: RGB color for other side
+        complexity: Number of Bezier control points
+        amplitude: Maximum curve deviation
+        size: Texture size in pixels
+        min_ratio: Minimum area ratio for color balance
+        max_ratio: Maximum area ratio for color balance
+        steepness: Sigmoid steepness for gradient transition
+        start_x_min: Min horizontal position for curve start
+        start_x_max: Max horizontal position for curve start
+        end_x_min: Min horizontal position for curve end
+        end_x_max: Max horizontal position for curve end
+        extension_top: Extend curve beyond top edge
+        extension_bottom: Extend curve beyond bottom edge
+        bezier_samples: Number of points to sample along curve
+        downsample_factor: Downsample factor for optimization
         max_attempts: Maximum generation attempts
+        visualize: Whether to generate debug visualization
 
     Returns:
-        PIL.Image: Generated texture
-
-    Raises:
-        RuntimeError: If unable to generate valid texture after max_attempts
+        PIL.Image or tuple: Generated texture, optionally with debug image
     """
     for attempt in range(max_attempts):
         # Generate random Bezier curve
-        control_points = generate_bezier_control_points(complexity, amplitude, size)
+        control_points = generate_bezier_control_points(
+            complexity, amplitude, size,
+            start_x_min, start_x_max, end_x_min, end_x_max,
+            extension_top, extension_bottom
+        )
 
-        # Create distance field from curve
-        distance_field = compute_distance_field(control_points, size)
+        # Evaluate curve
+        curve_points = evaluate_bezier_curve_fast(control_points, num_samples=bezier_samples)
 
-        # Validate area ratio constraints
-        if validate_area_ratio(distance_field, min_ratio, max_ratio):
-            # Apply gradient based on distance
-            texture_array = apply_gradient(distance_field, color1, color2, sharpness)
-            return Image.fromarray(texture_array)
+        # Check area ratio (color balance)
+        avg_x = np.mean(curve_points[:, 0])
+        ratio = avg_x / size
 
-    raise RuntimeError(f"Failed to generate valid curved gradient after {max_attempts} attempts")
+        if min_ratio <= ratio <= max_ratio:
+            # Generate texture using fast distance field
+            texture_array = create_gradient_fast(
+                curve_points, size, color1, color2, steepness, downsample_factor
+            )
+
+            if visualize:
+                # Create debug version with curve overlay
+                debug_img = visualize_curve_on_texture(
+                    texture_array.copy(), control_points, curve_points
+                )
+                return Image.fromarray(texture_array), debug_img
+            else:
+                return Image.fromarray(texture_array)
+
+    raise RuntimeError(f"Failed to generate texture after {max_attempts} attempts. "
+                      f"Try adjusting TEXTURE_MIN_AREA_RATIO and TEXTURE_MAX_AREA_RATIO in config.py")
 
 
-def generate_all_textures(output_dir=None, num_variants=3):
-    """Generate all texture variants with multiple random mixed textures.
+def visualize_curve_on_texture(texture, control_points, curve_points):
+    """Draw curve on texture for debugging.
 
     Args:
-        output_dir: Output directory path (default: src/data/objects/textures/)
-        num_variants: Number of random mixed texture variants to generate
+        texture: RGB texture array
+        control_points: Bezier control points
+        curve_points: Evaluated curve points
 
     Returns:
-        dict: Mapping of texture_type to file path
+        PIL.Image: Texture with curve overlay
     """
+    img = Image.fromarray(texture)
+    draw = ImageDraw.Draw(img)
+
+    # Draw curve
+    curve_coords = [(int(p[0]), int(p[1])) for p in curve_points[::config.TEXTURE_DEBUG_CURVE_SKIP]]
+    draw.line(curve_coords, fill=(255, 255, 0), width=config.TEXTURE_DEBUG_CURVE_WIDTH)
+
+    # Draw control points
+    radius = config.TEXTURE_DEBUG_CONTROL_POINT_RADIUS
+    for cp in control_points:
+        x, y = int(cp[0]), int(cp[1])
+        draw.ellipse(
+            [x-radius, y-radius, x+radius, y+radius],
+            fill=(0, 0, 255),
+            outline=(255, 255, 255),
+            width=2
+        )
+
+    return img
+
+
+def generate_all_textures(output_dir=None, visualize=False):
+    """Generate all texture variants."""
     if output_dir is None:
         output_dir = config.DATA_DIR / "objects" / "textures"
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    texture_paths = {}
+    print("\n=== Ultra-Fast Texture Generator ===")
+    print(f"Numba JIT: {'ENABLED' if NUMBA_AVAILABLE else 'DISABLED (install numba for 4x speedup)'}")
+    print(f"Downsample factor: {config.TEXTURE_DOWNSAMPLE_FACTOR}x ({config.TEXTURE_DOWNSAMPLE_FACTOR**2}x speedup)")
+    print(f"Bezier samples: {config.TEXTURE_BEZIER_SAMPLES}")
 
-    # Generate red texture
-    print("Generating red texture...")
-    red_texture = generate_solid_texture(
-        config.TEXTURE_RED_COLOR,
-        config.TEXTURE_SIZE
-    )
-    red_texture = add_noise(red_texture, config.TEXTURE_NOISE_LEVEL)
+    # Red texture
+    print("\n[1/3] Red texture...")
+    red_texture = np.zeros((config.TEXTURE_SIZE, config.TEXTURE_SIZE, 3), dtype=np.uint8)
+    red_texture[:, :] = config.TEXTURE_RED_COLOR
     red_path = output_dir / "red.png"
-    red_texture.save(red_path)
-    texture_paths["red"] = red_path
-    print(f"  Saved to {red_path}")
+    Image.fromarray(red_texture).save(red_path)
+    print(f"  Saved: {red_path}")
 
-    # Generate multiple mixed textures with different random curves
-    print(f"Generating {num_variants} mixed texture variants...")
-    for variant_idx in range(num_variants):
-        mixed_texture = generate_curved_gradient_texture(
-            config.TEXTURE_RED_COLOR,
-            config.TEXTURE_GREEN_COLOR,
-            config.TEXTURE_CURVE_COMPLEXITY,
-            config.TEXTURE_CURVE_AMPLITUDE,
-            config.TEXTURE_GRADIENT_SHARPNESS,
-            config.TEXTURE_SIZE,
-            config.TEXTURE_MIN_AREA_RATIO,
-            config.TEXTURE_MAX_AREA_RATIO
-        )
-        mixed_texture = add_noise(mixed_texture, config.TEXTURE_NOISE_LEVEL)
-
-        if variant_idx == 0:
-            mixed_path = output_dir / "mixed.png"
-        else:
-            mixed_path = output_dir / f"mixed_{variant_idx}.png"
-
-        mixed_texture.save(mixed_path)
-        texture_paths[f"mixed_{variant_idx}"] = mixed_path
-        print(f"  Saved variant {variant_idx} to {mixed_path}")
-
-    # Generate green texture
-    print("Generating green texture...")
-    green_texture = generate_solid_texture(
-        config.TEXTURE_GREEN_COLOR,
-        config.TEXTURE_SIZE
+    # Mixed texture
+    print("\n[2/3] Mixed texture (curved gradient)...")
+    result = generate_curved_gradient_texture(
+        color1=config.TEXTURE_RED_COLOR,
+        color2=config.TEXTURE_GREEN_COLOR,
+        complexity=config.TEXTURE_CURVE_COMPLEXITY,
+        amplitude=config.TEXTURE_CURVE_AMPLITUDE,
+        size=config.TEXTURE_SIZE,
+        min_ratio=config.TEXTURE_MIN_AREA_RATIO,
+        max_ratio=config.TEXTURE_MAX_AREA_RATIO,
+        steepness=config.TEXTURE_GRADIENT_STEEPNESS,
+        start_x_min=config.TEXTURE_CURVE_START_X_MIN,
+        start_x_max=config.TEXTURE_CURVE_START_X_MAX,
+        end_x_min=config.TEXTURE_CURVE_END_X_MIN,
+        end_x_max=config.TEXTURE_CURVE_END_X_MAX,
+        extension_top=config.TEXTURE_CURVE_EXTENSION_TOP,
+        extension_bottom=config.TEXTURE_CURVE_EXTENSION_BOTTOM,
+        bezier_samples=config.TEXTURE_BEZIER_SAMPLES,
+        downsample_factor=config.TEXTURE_DOWNSAMPLE_FACTOR,
+        max_attempts=config.TEXTURE_MAX_GENERATION_ATTEMPTS,
+        visualize=visualize
     )
-    green_texture = add_noise(green_texture, config.TEXTURE_NOISE_LEVEL)
-    green_path = output_dir / "green.png"
-    green_texture.save(green_path)
-    texture_paths["green"] = green_path
-    print(f"  Saved to {green_path}")
 
-    return texture_paths
+    if visualize:
+        mixed_texture, debug_texture = result
+        mixed_path = output_dir / "mixed.png"
+        debug_path = output_dir / "mixed_debug.png"
+        mixed_texture.save(mixed_path)
+        debug_texture.save(debug_path)
+        print(f"  Saved: {mixed_path}")
+        print(f"  Debug: {debug_path}")
+    else:
+        mixed_texture = result
+        mixed_path = output_dir / "mixed.png"
+        mixed_texture.save(mixed_path)
+        print(f"  Saved: {mixed_path}")
+
+    # Green texture
+    print("\n[3/3] Green texture...")
+    green_texture = np.zeros((config.TEXTURE_SIZE, config.TEXTURE_SIZE, 3), dtype=np.uint8)
+    green_texture[:, :] = config.TEXTURE_GREEN_COLOR
+    green_path = output_dir / "green.png"
+    Image.fromarray(green_texture).save(green_path)
+    print(f"  Saved: {green_path}")
+
+    print("\n=== Complete ===")
+    return {"red": red_path, "mixed": mixed_path, "green": green_path}
 
 
 if __name__ == "__main__":
     import argparse
+    import time
 
-    parser = argparse.ArgumentParser(description="Generate procedural textures for NBV project")
-    parser.add_argument("--output", type=str, default=None, help="Output directory")
-    parser.add_argument("--visualize", action="store_true", help="Show generated textures")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--visualize", action="store_true", help="Generate debug version with curve overlay")
     args = parser.parse_args()
 
-    # Generate textures
-    texture_paths = generate_all_textures(args.output)
+    start_time = time.perf_counter()
+    texture_paths = generate_all_textures(visualize=args.visualize)
+    elapsed = time.perf_counter() - start_time
 
-    print("\nTexture generation complete!")
-    print(f"Generated {len(texture_paths)} textures:")
-    for texture_type, path in texture_paths.items():
-        print(f"  {texture_type}: {path}")
-
-    # Visualize if requested
-    if args.visualize:
-        import matplotlib.pyplot as plt
-
-        fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-
-        for ax, (texture_type, path) in zip(axes, texture_paths.items()):
-            img = Image.open(path)
-            ax.imshow(img)
-            ax.set_title(f"{texture_type.capitalize()} Texture")
-            ax.axis("off")
-
-        plt.tight_layout()
-        plt.show()
+    print(f"\nTotal time: {elapsed:.2f}s")

@@ -1,0 +1,23 @@
+[
+  {
+    "color": [
+      255,
+      0,
+      0
+    ],
+    "instance_id": 0,
+    "category_id": 6,
+    "category_name": "target_object",
+    "texture_type": "green"
+  },
+  {
+    "color": [
+      0,
+      255,
+      0
+    ],
+    "instance_id": 1,
+    "category_id": 9,
+    "category_name": "robot"
+  }
+]
