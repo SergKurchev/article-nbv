@@ -147,6 +147,11 @@ TEXTURE_SIZE = 512
 TEXTURE_RED_COLOR = [255, 0, 0]
 TEXTURE_GREEN_COLOR = [0, 255, 0]
 
+# Mixed texture pre-generation
+TEXTURE_NUM_MIXED_VARIANTS = 20  # Number of different mixed textures to pre-generate
+TEXTURE_MIXED_RANDOM_SEEDS = [42, 123, 456, 789, 1011, 1213, 1415, 1617, 1819, 2021,
+                               2223, 2425, 2627, 2829, 3031, 3233, 3435, 3637, 3839, 4041]  # Seeds for reproducible mixed textures
+
 # Gradient curve parameters
 TEXTURE_GRADIENT_TYPE = "curved"  # "linear" or "curved"
 TEXTURE_GRADIENT_ANGLE = 45.0  # Base angle for linear gradient (degrees)

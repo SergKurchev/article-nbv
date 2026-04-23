@@ -22,7 +22,8 @@
       "Bash(kaggle --version)",
       "Bash(mkdir -p ~/.kaggle)",
       "Bash(chmod 600 ~/.kaggle/kaggle.json)",
-      "Bash(find dataset/primitives -name \"visualization.html\" -type f -delete)"
+      "Bash(find dataset/primitives -name \"visualization.html\" -type f -delete)",
+      "Bash(python scripts/test_full_pipeline.py)"
     ]
   }
 }

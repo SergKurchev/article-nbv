@@ -357,7 +357,7 @@ def visualize_curve_on_texture(texture, control_points, curve_points):
 
 
 def generate_all_textures(output_dir=None, visualize=False):
-    """Generate all texture variants."""
+    """Generate all texture variants including 20 different mixed textures."""
     if output_dir is None:
         output_dir = config.DATA_DIR / "objects" / "textures"
 
@@ -368,6 +368,7 @@ def generate_all_textures(output_dir=None, visualize=False):
     print(f"Numba JIT: {'ENABLED' if NUMBA_AVAILABLE else 'DISABLED (install numba for 4x speedup)'}")
     print(f"Downsample factor: {config.TEXTURE_DOWNSAMPLE_FACTOR}x ({config.TEXTURE_DOWNSAMPLE_FACTOR**2}x speedup)")
     print(f"Bezier samples: {config.TEXTURE_BEZIER_SAMPLES}")
+    print(f"Mixed texture variants: {config.TEXTURE_NUM_MIXED_VARIANTS}")
 
     # Red texture
     print("\n[1/3] Red texture...")
@@ -377,42 +378,52 @@ def generate_all_textures(output_dir=None, visualize=False):
     Image.fromarray(red_texture).save(red_path)
     print(f"  Saved: {red_path}")
 
-    # Mixed texture
-    print("\n[2/3] Mixed texture (curved gradient)...")
-    result = generate_curved_gradient_texture(
-        color1=config.TEXTURE_RED_COLOR,
-        color2=config.TEXTURE_GREEN_COLOR,
-        complexity=config.TEXTURE_CURVE_COMPLEXITY,
-        amplitude=config.TEXTURE_CURVE_AMPLITUDE,
-        size=config.TEXTURE_SIZE,
-        min_ratio=config.TEXTURE_MIN_AREA_RATIO,
-        max_ratio=config.TEXTURE_MAX_AREA_RATIO,
-        steepness=config.TEXTURE_GRADIENT_STEEPNESS,
-        start_x_min=config.TEXTURE_CURVE_START_X_MIN,
-        start_x_max=config.TEXTURE_CURVE_START_X_MAX,
-        end_x_min=config.TEXTURE_CURVE_END_X_MIN,
-        end_x_max=config.TEXTURE_CURVE_END_X_MAX,
-        extension_top=config.TEXTURE_CURVE_EXTENSION_TOP,
-        extension_bottom=config.TEXTURE_CURVE_EXTENSION_BOTTOM,
-        bezier_samples=config.TEXTURE_BEZIER_SAMPLES,
-        downsample_factor=config.TEXTURE_DOWNSAMPLE_FACTOR,
-        max_attempts=config.TEXTURE_MAX_GENERATION_ATTEMPTS,
-        visualize=visualize
-    )
+    # Mixed textures (20 variants with different random seeds)
+    print(f"\n[2/3] Mixed textures ({config.TEXTURE_NUM_MIXED_VARIANTS} variants)...")
+    mixed_paths = []
 
-    if visualize:
-        mixed_texture, debug_texture = result
-        mixed_path = output_dir / "mixed.png"
-        debug_path = output_dir / "mixed_debug.png"
-        mixed_texture.save(mixed_path)
-        debug_texture.save(debug_path)
-        print(f"  Saved: {mixed_path}")
-        print(f"  Debug: {debug_path}")
-    else:
-        mixed_texture = result
-        mixed_path = output_dir / "mixed.png"
-        mixed_texture.save(mixed_path)
-        print(f"  Saved: {mixed_path}")
+    for i in range(config.TEXTURE_NUM_MIXED_VARIANTS):
+        seed = config.TEXTURE_MIXED_RANDOM_SEEDS[i]
+        np.random.seed(seed)
+
+        print(f"  [{i+1}/{config.TEXTURE_NUM_MIXED_VARIANTS}] Generating mixed_{i}.png (seed={seed})...")
+
+        result = generate_curved_gradient_texture(
+            color1=config.TEXTURE_RED_COLOR,
+            color2=config.TEXTURE_GREEN_COLOR,
+            complexity=config.TEXTURE_CURVE_COMPLEXITY,
+            amplitude=config.TEXTURE_CURVE_AMPLITUDE,
+            size=config.TEXTURE_SIZE,
+            min_ratio=config.TEXTURE_MIN_AREA_RATIO,
+            max_ratio=config.TEXTURE_MAX_AREA_RATIO,
+            steepness=config.TEXTURE_GRADIENT_STEEPNESS,
+            start_x_min=config.TEXTURE_CURVE_START_X_MIN,
+            start_x_max=config.TEXTURE_CURVE_START_X_MAX,
+            end_x_min=config.TEXTURE_CURVE_END_X_MIN,
+            end_x_max=config.TEXTURE_CURVE_END_X_MAX,
+            extension_top=config.TEXTURE_CURVE_EXTENSION_TOP,
+            extension_bottom=config.TEXTURE_CURVE_EXTENSION_BOTTOM,
+            bezier_samples=config.TEXTURE_BEZIER_SAMPLES,
+            downsample_factor=config.TEXTURE_DOWNSAMPLE_FACTOR,
+            max_attempts=config.TEXTURE_MAX_GENERATION_ATTEMPTS,
+            visualize=visualize
+        )
+
+        if visualize:
+            mixed_texture, debug_texture = result
+            mixed_path = output_dir / f"mixed_{i}.png"
+            debug_path = output_dir / f"mixed_{i}_debug.png"
+            mixed_texture.save(mixed_path)
+            debug_texture.save(debug_path)
+            print(f"    Saved: {mixed_path}")
+            print(f"    Debug: {debug_path}")
+        else:
+            mixed_texture = result
+            mixed_path = output_dir / f"mixed_{i}.png"
+            mixed_texture.save(mixed_path)
+            print(f"    Saved: {mixed_path}")
+
+        mixed_paths.append(mixed_path)
 
     # Green texture
     print("\n[3/3] Green texture...")
@@ -423,7 +434,7 @@ def generate_all_textures(output_dir=None, visualize=False):
     print(f"  Saved: {green_path}")
 
     print("\n=== Complete ===")
-    return {"red": red_path, "mixed": mixed_path, "green": green_path}
+    return {"red": red_path, "mixed": mixed_paths, "green": green_path}
 
 
 if __name__ == "__main__":

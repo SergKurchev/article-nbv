@@ -109,26 +109,21 @@ class AssetLoader:
         Raises:
             FileNotFoundError: If texture file doesn't exist
         """
-        # For mixed textures, randomly select a variant
+        texture_dir = config.DATA_DIR / "objects" / "textures"
+
+        # For mixed textures, randomly select from pre-generated variants
         if texture_type == 'mixed':
-            import random
-            # Check how many mixed variants exist
-            texture_dir = config.DATA_DIR / "objects" / "textures"
-            variants = list(texture_dir.glob("mixed*.png"))
-            if variants:
-                # Randomly select one variant
-                selected_texture = random.choice(variants)
-                cache_key = f"mixed_{selected_texture.stem}"
-            else:
-                cache_key = texture_type
-                selected_texture = texture_dir / f"{texture_type}.png"
+            # Randomly select one of the 20 pre-generated mixed textures
+            variant_idx = random.randint(0, config.TEXTURE_NUM_MIXED_VARIANTS - 1)
+            selected_texture = texture_dir / f"mixed_{variant_idx}.png"
+            # Don't cache mixed textures - we want random selection each time
+            cache_key = None
         else:
             cache_key = texture_type
-            texture_dir = config.DATA_DIR / "objects" / "textures"
             selected_texture = texture_dir / f"{texture_type}.png"
 
-        # Check cache
-        if cache_key in self.texture_cache:
+        # Check cache (only for non-mixed textures)
+        if cache_key and cache_key in self.texture_cache:
             return self.texture_cache[cache_key]
 
         if not selected_texture.exists():
@@ -139,7 +134,10 @@ class AssetLoader:
 
         tex_path_short = config.get_short_path(selected_texture)
         tex_id = p.loadTexture(str(tex_path_short), physicsClientId=self.client_id)
-        self.texture_cache[cache_key] = tex_id
+
+        # Cache only non-mixed textures
+        if cache_key:
+            self.texture_cache[cache_key] = tex_id
 
         return tex_id
 
