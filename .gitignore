@@ -25,6 +25,7 @@ logs/
 # Optional: PyCharm/VSCode
 .idea/
 .vscode/
+.claude/
 
 # Ignore artifact runs except the folder structure
 runs/*/
