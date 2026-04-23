@@ -17,6 +17,7 @@ import json
 import config
 from tqdm import tqdm
 from src.vision.models import PointNet
+from src.vision.pointnet_logger import PointNetLogger
 
 
 class PointCloudDataset(Dataset):
@@ -206,6 +207,9 @@ def train_pointnet():
     output_dir = config.CNN_WEIGHTS_DIR
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Create CSV logger
+    logger = PointNetLogger(output_dir)
+
     print(f"\nTraining for {config.POINTNET_EPOCHS} epochs...")
     print(f"Batch size: {config.POINTNET_BATCH_SIZE}")
     print(f"Learning rate: {config.POINTNET_LR}")
@@ -224,6 +228,12 @@ def train_pointnet():
 
         # Step scheduler
         scheduler.step()
+
+        # Get current learning rate
+        current_lr = optimizer.param_groups[0]['lr']
+
+        # Log metrics to CSV
+        logger.log_epoch(epoch + 1, train_loss, train_acc, val_loss, val_acc, current_lr)
 
         # Save best model
         if val_acc > best_val_acc:

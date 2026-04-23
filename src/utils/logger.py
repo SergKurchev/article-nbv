@@ -1,6 +1,7 @@
 import json
 import os
 import shutil
+import csv
 from pathlib import Path
 import numpy as np
 
@@ -9,8 +10,9 @@ class Logger:
         self.run_dir = run_dir
         self.json_path = self.run_dir / "logs.json"
         self.jsonl_path = self.run_dir / "logs.jsonl"
+        self.csv_path = self.run_dir / "rl_metrics.csv"
         self.logs = []
-        
+
         # 1. Load legacy JSON if exists (convert to JSONL if needed)
         if self.json_path.exists():
             try:
@@ -25,7 +27,7 @@ class Logger:
                 print(f"Migrated legacy logs from {self.json_path.name}")
             except Exception as e:
                 print(f"Warning: Could not load legacy logs: {e}")
-        
+
         # 2. Load JSONL if exists
         elif self.jsonl_path.exists():
             try:
@@ -35,6 +37,17 @@ class Logger:
                             self.logs.append(json.loads(line))
             except Exception as e:
                 print(f"Warning: Could not load JSONL logs: {e}")
+
+        # 3. Create CSV header if doesn't exist
+        if not self.csv_path.exists():
+            try:
+                self.csv_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(self.csv_path, 'w', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(['step', 'reward', 'obj_metric', 'reward_std', 'obj_metric_std'])
+                print(f"Created RL metrics CSV: {self.csv_path}")
+            except Exception as e:
+                print(f"Warning: Could not create CSV: {e}")
                 
     def copy_config(self):
         import config
@@ -51,13 +64,21 @@ class Logger:
             "obj_metric_std": float(obj_metric_std)
         }
         self.logs.append(entry)
-        
+
         # Append to JSONL immediately (append mode)
         try:
             with open(self.jsonl_path, 'a') as f:
                 f.write(json.dumps(entry) + '\n')
         except Exception as e:
-            print(f"Error writing to log file: {e}")
+            print(f"Error writing to JSONL file: {e}")
+
+        # Also write to CSV
+        try:
+            with open(self.csv_path, 'a', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow([step, reward, obj_metric, reward_std, obj_metric_std])
+        except Exception as e:
+            print(f"Error writing to CSV: {e}")
             
     def save(self):
         # Already handled by append in log_episode for JSONL
