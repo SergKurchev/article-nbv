@@ -33,7 +33,7 @@ RL_TIMESTEPS = 50000  # Reduced from 500k to fit Kaggle time limits
 OBJECT_MODE = "primitives"
 
 # Repository
-REPO_URL = "https://github.com/YOUR_USERNAME/YOUR_REPO.git"  # UPDATE THIS!
+REPO_URL = "https://github.com/SergKurchev/article-nbv.git"
 
 print(f"Running on Kaggle: {IS_KAGGLE}")
 print(f"Dataset: Stage {DATASET_STAGE}")
