@@ -55,7 +55,7 @@ class AssetLoader:
             
             size = np.array(aabb_max) - np.array(aabb_min)
             max_dim = np.max(size)
-            target_size = 0.15
+            target_size = 0.15 * config.OBJECT_SCALE_FACTOR
             scale = target_size / max_dim if max_dim > 0 else 1.0
             
             visual_shape = p.createVisualShape(shapeType=p.GEOM_MESH, vertices=v, indices=ind, meshScale=[scale, scale, scale], physicsClientId=self.client_id)
@@ -71,7 +71,7 @@ class AssetLoader:
             
             size = np.array(aabb_max) - np.array(aabb_min)
             max_dim = np.max(size)
-            target_size = 0.15
+            target_size = 0.15 * config.OBJECT_SCALE_FACTOR
             scale = target_size / max_dim if max_dim > 0 else 1.0
             
             visual_shape = p.createVisualShape(shapeType=p.GEOM_MESH, fileName=str(obj_path_short), meshScale=[scale, scale, scale], physicsClientId=self.client_id)
@@ -179,19 +179,114 @@ class AssetLoader:
             num_obstacles = 0
 
         elif config.SCENE_STAGE == 3:
-            # Stage 3: Multiple objects + obstacles
+            # Stage 3: Multiple objects + obstacles with interleaved placement
             num_objects = random.randint(config.MIN_OBJECTS, config.MAX_OBJECTS)
-            positions = self._generate_collision_free_positions(num_objects)
-
-            for pos, class_id, radius in positions:
-                texture_type = ['red', 'mixed', 'green'][class_id % 3]
-                obj_id = self._create_object_at_position(class_id, texture_type, pos)
-                self.target_objects.append(obj_id)
-                self.target_objects_classes.append(class_id)
-
             num_obstacles = random.randint(config.MIN_OBSTACLES, config.MAX_OBSTACLES)
-            # Pass positions with radii for better collision detection
-            self._generate_obstacles_uniform(num_obstacles, positions)
+
+            # Create interleaved placement queue
+            placement_queue = []
+            for i in range(max(num_objects, num_obstacles)):
+                if i < num_objects:
+                    placement_queue.append(('object', i))
+                if i < num_obstacles:
+                    placement_queue.append(('obstacle', i))
+
+            # Shuffle to randomize order
+            random.shuffle(placement_queue)
+
+            # Track all placed items for collision detection
+            placed_items = []  # List of (position, radius) tuples
+
+            # Place items sequentially
+            for item_type, item_idx in placement_queue:
+                if item_type == 'object':
+                    # Randomly select object class and texture
+                    class_id = random.randint(0, config.NUM_CLASSES - 1)
+                    texture_type = ['red', 'mixed', 'green'][class_id % 3]
+                    object_radius, object_half_height = self._get_object_bounding_box(class_id)
+
+                    # Find collision-free position
+                    placed = False
+                    for attempt in range(10):  # 10 attempts per object
+                        x = random.uniform(config.SCENE_BOUNDS_X_MIN, config.SCENE_BOUNDS_X_MAX)
+                        y = random.uniform(config.SCENE_BOUNDS_Y_MIN, config.SCENE_BOUNDS_Y_MAX)
+                        z_min = config.SCENE_BOUNDS_Z_MIN + object_half_height + 0.05
+                        z = random.uniform(z_min, config.SCENE_BOUNDS_Z_MAX)
+                        pos = [x, y, z]
+
+                        # Check collision with all placed items
+                        collision = False
+                        for existing_pos, existing_radius in placed_items:
+                            distance = np.linalg.norm(np.array(pos) - np.array(existing_pos))
+                            min_safe_distance = object_radius + existing_radius + 0.05
+                            if distance < min_safe_distance:
+                                collision = True
+                                break
+
+                        if not collision:
+                            obj_id = self._create_object_at_position(class_id, texture_type, pos)
+                            self.target_objects.append(obj_id)
+                            self.target_objects_classes.append(class_id)
+                            placed_items.append((pos, object_radius))
+                            placed = True
+                            break
+
+                    if not placed:
+                        print(f"Warning: Could not place object {len(self.target_objects)+1} after 10 attempts")
+
+                elif item_type == 'obstacle':
+                    # Randomly select obstacle dimensions
+                    half_extents = [
+                        random.uniform(0.01, 0.05) * config.OBSTACLE_SCALE_FACTOR,
+                        random.uniform(0.1, 0.2) * config.OBSTACLE_SCALE_FACTOR,
+                        random.uniform(0.1, 0.3) * config.OBSTACLE_SCALE_FACTOR
+                    ]
+                    obstacle_radius = max(half_extents)
+
+                    # Find collision-free position
+                    placed = False
+                    for attempt in range(10):  # 10 attempts per obstacle
+                        x = random.uniform(config.SCENE_BOUNDS_X_MIN, config.SCENE_BOUNDS_X_MAX)
+                        y = random.uniform(config.SCENE_BOUNDS_Y_MIN, config.SCENE_BOUNDS_Y_MAX)
+                        z_min = config.SCENE_BOUNDS_Z_MIN + half_extents[2] + 0.05
+                        z = random.uniform(z_min, config.SCENE_BOUNDS_Z_MAX)
+                        pos = [x, y, z]
+
+                        # Check collision with all placed items
+                        collision = False
+                        for existing_pos, existing_radius in placed_items:
+                            distance = np.linalg.norm(np.array(pos) - np.array(existing_pos))
+                            min_safe_distance = obstacle_radius + existing_radius + 0.05
+                            if distance < min_safe_distance:
+                                collision = True
+                                break
+
+                        # Check collision with robot base
+                        if not collision:
+                            base_distance = np.linalg.norm([pos[0], pos[1]])
+                            if base_distance < 0.25:
+                                collision = True
+
+                        if not collision:
+                            yaw = random.uniform(0, 2 * np.pi)
+                            orn = p.getQuaternionFromEuler([0, 0, yaw])
+
+                            visual_shape = p.createVisualShape(p.GEOM_BOX, halfExtents=half_extents,
+                                                              rgbaColor=[0.5, 0.5, 0.5, 1],
+                                                              physicsClientId=self.client_id)
+                            collision_shape = p.createCollisionShape(p.GEOM_BOX, halfExtents=half_extents,
+                                                                     physicsClientId=self.client_id)
+
+                            body_id = p.createMultiBody(baseMass=0, baseCollisionShapeIndex=collision_shape,
+                                                       baseVisualShapeIndex=visual_shape, basePosition=pos,
+                                                       baseOrientation=orn, physicsClientId=self.client_id)
+                            self.obstacles.append(body_id)
+                            placed_items.append((pos, obstacle_radius))
+                            placed = True
+                            break
+
+                    if not placed:
+                        print(f"Warning: Could not place obstacle {len(self.obstacles)+1} after 10 attempts")
 
         else:
             raise ValueError(f"Invalid SCENE_STAGE: {config.SCENE_STAGE}. Must be 1, 2, or 3.")
@@ -310,7 +405,7 @@ class AssetLoader:
 
             size = np.array(aabb_max) - np.array(aabb_min)
             max_dim = np.max(size)
-            target_size = 0.15
+            target_size = 0.15 * config.OBJECT_SCALE_FACTOR
             scale = target_size / max_dim if max_dim > 0 else 1.0
 
             visual_shape = p.createVisualShape(shapeType=p.GEOM_MESH, vertices=v, indices=ind, meshScale=[scale, scale, scale], physicsClientId=self.client_id)
@@ -325,7 +420,7 @@ class AssetLoader:
 
             size = np.array(aabb_max) - np.array(aabb_min)
             max_dim = np.max(size)
-            target_size = 0.15
+            target_size = 0.15 * config.OBJECT_SCALE_FACTOR
             scale = target_size / max_dim if max_dim > 0 else 1.0
 
             visual_shape = p.createVisualShape(shapeType=p.GEOM_MESH, fileName=str(obj_path_short), meshScale=[scale, scale, scale], physicsClientId=self.client_id)
@@ -356,11 +451,11 @@ class AssetLoader:
         obstacle_positions = []
 
         for _ in range(num_obstacles):
-            # Random obstacle dimensions
+            # Random obstacle dimensions (scaled by OBSTACLE_SCALE_FACTOR)
             half_extents = [
-                random.uniform(0.01, 0.05),
-                random.uniform(0.1, 0.2),
-                random.uniform(0.1, 0.3)
+                random.uniform(0.01, 0.05) * config.OBSTACLE_SCALE_FACTOR,
+                random.uniform(0.1, 0.2) * config.OBSTACLE_SCALE_FACTOR,
+                random.uniform(0.1, 0.3) * config.OBSTACLE_SCALE_FACTOR
             ]
             # Obstacle radius (max half-extent)
             obstacle_radius = max(half_extents)
@@ -410,11 +505,11 @@ class AssetLoader:
 
         # Create obstacles at validated positions
         for pos, radius in obstacle_positions:
-            # Use pre-calculated dimensions
+            # Use pre-calculated dimensions (scaled by OBSTACLE_SCALE_FACTOR)
             half_extents = [
-                random.uniform(0.01, 0.05),
-                random.uniform(0.1, 0.2),
-                random.uniform(0.1, 0.3)
+                random.uniform(0.01, 0.05) * config.OBSTACLE_SCALE_FACTOR,
+                random.uniform(0.1, 0.2) * config.OBSTACLE_SCALE_FACTOR,
+                random.uniform(0.1, 0.3) * config.OBSTACLE_SCALE_FACTOR
             ]
 
             yaw = random.uniform(0, 2 * np.pi)

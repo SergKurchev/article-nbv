@@ -49,7 +49,9 @@ def generate_stage_dataset(num_samples_per_class=None, views_per_sample=None):
 
     # Setup scene
     p.setAdditionalSearchPath(config.get_short_path(pybullet_data.getDataPath()), physicsClientId=client_id)
-    p.loadURDF("plane.urdf", physicsClientId=client_id)
+    plane_id = p.loadURDF("plane.urdf", physicsClientId=client_id)
+    # Make ground plane black
+    p.changeVisualShape(plane_id, -1, rgbaColor=[0, 0, 0, 1], physicsClientId=client_id)
 
     camera = Camera(client_id)
     loader = AssetLoader(client_id)
@@ -143,51 +145,61 @@ def generate_stage_dataset(num_samples_per_class=None, views_per_sample=None):
             # Cache intrinsics
             intrinsics = camera.get_intrinsics()
 
-            # Compute scene center for camera orbit
-            if config.SCENE_STAGE == 1:
-                # Stage 1: orbit around fixed position
-                scene_center = config.DATASET_TARGET_POS
-            else:
-                # Stage 2/3: orbit around center of all objects
-                positions = []
-                for obj_id, _ in objects_with_classes:
-                    pos, _ = p.getBasePositionAndOrientation(obj_id, physicsClientId=client_id)
-                    positions.append(pos)
-                scene_center = np.mean(positions, axis=0).tolist()
-
-            # Generate views around the scene
+            # Generate views with random camera positions in manipulator workspace
             cameras_data = {}
             valid_views = 0
 
-            for view_idx in range(views_per_sample):
-                # Spherical coordinates around scene center
-                radius = random.uniform(config.DATASET_CAMERA_RADIUS_MIN, config.DATASET_CAMERA_RADIUS_MAX)
-                theta = (view_idx / views_per_sample) * 2 * np.pi + random.uniform(-config.DATASET_CAMERA_THETA_JITTER, config.DATASET_CAMERA_THETA_JITTER)
-                phi = random.uniform(config.DATASET_CAMERA_PHI_MIN, config.DATASET_CAMERA_PHI_MAX)
+            # Get all object and obstacle positions for collision checking
+            all_positions = []
+            for obj_id, _ in objects_with_classes:
+                pos, _ = p.getBasePositionAndOrientation(obj_id, physicsClientId=client_id)
+                all_positions.append(pos)
+            for obs_id in loader.obstacles:
+                pos, _ = p.getBasePositionAndOrientation(obs_id, physicsClientId=client_id)
+                all_positions.append(pos)
 
-                cam_x = scene_center[0] + radius * np.sin(phi) * np.cos(theta)
-                cam_y = scene_center[1] + radius * np.sin(phi) * np.sin(theta)
-                cam_z = scene_center[2] + radius * np.cos(phi)
-                cam_eye = [cam_x, cam_y, cam_z]
+            for view_idx in range(views_per_sample):
+                # Try to find valid camera position (max 50 attempts)
+                cam_eye = None
+                for attempt in range(50):
+                    # Random position in manipulator workspace
+                    cam_x = random.uniform(0.2, 0.8)
+                    cam_y = random.uniform(-0.5, 0.5)
+                    cam_z = random.uniform(0.2, 0.8)
+                    candidate_pos = [cam_x, cam_y, cam_z]
+
+                    # Check collision with objects and obstacles (min distance 0.1m)
+                    collision = False
+                    for obj_pos in all_positions:
+                        distance = np.linalg.norm(np.array(candidate_pos) - np.array(obj_pos))
+                        if distance < 0.1:
+                            collision = True
+                            break
+
+                    if not collision:
+                        cam_eye = candidate_pos
+                        break
+
+                if cam_eye is None:
+                    # Could not find valid camera position, skip this view
+                    continue
+
+                # Random target point in object generation space
+                target_x = random.uniform(config.SCENE_BOUNDS_X_MIN, config.SCENE_BOUNDS_X_MAX)
+                target_y = random.uniform(config.SCENE_BOUNDS_Y_MIN, config.SCENE_BOUNDS_Y_MAX)
+                target_z = random.uniform(config.SCENE_BOUNDS_Z_MIN, config.SCENE_BOUNDS_Z_MAX)
+                cam_target = [target_x, target_y, target_z]
 
                 # Compute view matrix
                 camera.view_matrix = p.computeViewMatrix(
                     cameraEyePosition=cam_eye,
-                    cameraTargetPosition=scene_center,
+                    cameraTargetPosition=cam_target,
                     cameraUpVector=[0, 0, 1],
                     physicsClientId=client_id
                 )
 
                 # Capture image
                 rgb, depth, seg = camera.get_image()
-
-                # Check visibility of at least one target object
-                total_obj_pixels = 0
-                for obj_id, _ in objects_with_classes:
-                    total_obj_pixels += np.sum(seg == obj_id)
-
-                if total_obj_pixels < config.DATASET_MIN_OBJECT_PIXELS:
-                    continue
 
                 # Save RGB
                 Image.fromarray(rgb).save(sample_dir / "rgb" / f"{view_idx:05d}.png")
@@ -244,7 +256,7 @@ def generate_stage_dataset(num_samples_per_class=None, views_per_sample=None):
                 rotation = camera.get_rotation_quaternion()
                 cameras_data[f"{view_idx:05d}"] = {
                     "position": cam_eye,
-                    "target": scene_center,
+                    "target": cam_target,
                     "up": [0, 0, 1],
                     "rotation": rotation,
                     "intrinsics": intrinsics

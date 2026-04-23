@@ -71,6 +71,10 @@ MAX_OBJECTS = 10  # Maximum number of objects in multi-object scenes
 MIN_OBSTACLES = 1  # Minimum number of obstacles
 MAX_OBSTACLES = 5  # Maximum number of obstacles
 
+# Object and obstacle scaling
+OBJECT_SCALE_FACTOR = 0.5  # Scale factor for target objects (multiplied by base size 0.15)
+OBSTACLE_SCALE_FACTOR = 1.0  # Scale factor for obstacles (multiplied by base dimensions)
+
 # Spatial distribution bounds for Stage 2 & 3
 # Objects and obstacles are placed within this volume
 SCENE_BOUNDS_X_MIN = 0.2  # Minimum X coordinate

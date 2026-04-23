@@ -106,9 +106,10 @@ class NBVEnv(gym.Env):
             
         # Add pybullet_data to search path for basic shapes like plane.urdf
         p.setAdditionalSearchPath(config.get_short_path(pybullet_data.getDataPath()), physicsClientId=self.client_id)
-        
-        # Load plane
-        p.loadURDF("plane.urdf", physicsClientId=self.client_id)
+
+        # Load plane and make it black
+        plane_id = p.loadURDF("plane.urdf", physicsClientId=self.client_id)
+        p.changeVisualShape(plane_id, -1, rgbaColor=[0, 0, 0, 1], physicsClientId=self.client_id)
         
         # If robot is used
         if not self.no_arm:
