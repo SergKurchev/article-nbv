@@ -82,7 +82,8 @@ SCENE_BOUNDS_X_MAX = 0.8  # Maximum X coordinate
 SCENE_BOUNDS_Y_MIN = -0.3  # Minimum Y coordinate
 SCENE_BOUNDS_Y_MAX = 0.3  # Maximum Y coordinate
 SCENE_BOUNDS_Z_MIN = 0.15  # Minimum Z coordinate (above ground) - raised to prevent ground collision
-SCENE_BOUNDS_Z_MAX = 0.4  # Maximum Z coordinate
+SCENE_BOUNDS_Z_MAX = 0.4  # Maximum Z coordinate for objects
+SCENE_BOUNDS_Z_MAX_OBSTACLES = 0.8  # Maximum Z coordinate for obstacles (2x higher than objects)
 
 # Collision detection for object placement
 SCENE_MIN_OBJECT_DISTANCE = 0.25  # Minimum distance between objects (meters) - increased for safety

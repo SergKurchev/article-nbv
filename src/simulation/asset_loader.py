@@ -461,12 +461,12 @@ class AssetLoader:
             obstacle_radius = max(half_extents)
 
             for attempt in range(config.SCENE_MAX_PLACEMENT_ATTEMPTS):
-                # Uniform distribution within same bounds as objects
+                # Uniform distribution within bounds (obstacles can be higher than objects)
                 x = random.uniform(config.SCENE_BOUNDS_X_MIN, config.SCENE_BOUNDS_X_MAX)
                 y = random.uniform(config.SCENE_BOUNDS_Y_MIN, config.SCENE_BOUNDS_Y_MAX)
                 # Z coordinate: center must be at least half-height above ground + safety margin
                 z_min = config.SCENE_BOUNDS_Z_MIN + half_extents[2] + 0.05  # 5cm safety margin
-                z = random.uniform(z_min, config.SCENE_BOUNDS_Z_MAX)
+                z = random.uniform(z_min, config.SCENE_BOUNDS_Z_MAX_OBSTACLES)
 
                 pos = [x, y, z]
 
@@ -512,8 +512,12 @@ class AssetLoader:
                 random.uniform(0.1, 0.3) * config.OBSTACLE_SCALE_FACTOR
             ]
 
+            # Random orientation in all 3 axes (random quaternion)
+            # Generate random Euler angles
+            roll = random.uniform(0, 2 * np.pi)
+            pitch = random.uniform(0, 2 * np.pi)
             yaw = random.uniform(0, 2 * np.pi)
-            orn = p.getQuaternionFromEuler([0, 0, yaw])
+            orn = p.getQuaternionFromEuler([roll, pitch, yaw])
 
             visual_shape = p.createVisualShape(p.GEOM_BOX, halfExtents=half_extents, rgbaColor=[0.5, 0.5, 0.5, 1], physicsClientId=self.client_id)
             collision_shape = p.createCollisionShape(p.GEOM_BOX, halfExtents=half_extents, physicsClientId=self.client_id)
