@@ -60,15 +60,36 @@ def get_dataset_info(dataset_slug):
             text=True,
             cwd=Path.home()
         )
+
         if result.returncode == 0:
             metadata_file = Path.home() / "dataset-metadata.json"
             if metadata_file.exists():
                 with open(metadata_file) as f:
-                    info = json.load(f)
+                    content = f.read().strip()
                 metadata_file.unlink()  # Clean up
-                return info
-    except:
-        pass
+
+                # Kaggle CLI returns double-encoded JSON (JSON string inside JSON)
+                # First parse to get the string, then parse again to get the dict
+                try:
+                    info = json.loads(content)
+                    # If it's a string, parse again
+                    if isinstance(info, str):
+                        info = json.loads(info)
+                    return info
+                except json.JSONDecodeError as e:
+                    print(f"[WARNING] Could not parse metadata: {e}")
+                    return None
+            # If no file was created, try parsing stdout as JSON
+            elif result.stdout.strip():
+                try:
+                    info = json.loads(result.stdout)
+                    if isinstance(info, str):
+                        info = json.loads(info)
+                    return info
+                except json.JSONDecodeError:
+                    pass
+    except Exception as e:
+        print(f"[WARNING] Error getting dataset info: {e}")
     return None
 
 def update_dataset_version(dataset_dir, stage, username, version_notes=None):
@@ -103,9 +124,9 @@ def update_dataset_version(dataset_dir, stage, username, version_notes=None):
     # Get current version info
     print(f"[INFO] Checking current version...")
     info = get_dataset_info(dataset_slug)
-    if info:
-        current_version = info.get("version", "unknown")
-        print(f"[INFO] Current version: {current_version}")
+    if info and isinstance(info, dict):
+        current_version = info.get("datasetId", "unknown")
+        print(f"[INFO] Current dataset ID: {current_version}")
 
     # Prepare version notes
     if version_notes is None:
@@ -206,6 +227,7 @@ if __name__ == "__main__":
     parser.add_argument("--object-mode", type=str, default="primitives", help="Object mode (primitives/complex)")
     parser.add_argument("--notes", type=str, help="Custom version notes")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be uploaded without actually uploading")
+    parser.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt")
     args = parser.parse_args()
 
     print("="*60)
@@ -236,10 +258,11 @@ if __name__ == "__main__":
 
     # Confirm upload
     print(f"\n[INFO] Ready to update {len(stages)} dataset(s) on Kaggle")
-    response = input("Continue? [y/N]: ")
-    if response.lower() != 'y':
-        print("[INFO] Upload cancelled")
-        sys.exit(0)
+    if not args.yes:
+        response = input("Continue? [y/N]: ")
+        if response.lower() != 'y':
+            print("[INFO] Upload cancelled")
+            sys.exit(0)
 
     # Upload datasets
     results = {}

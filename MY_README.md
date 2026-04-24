@@ -11,9 +11,9 @@ uv run python scripts/prepare_stage_datasets.py --stage 3 --samples 8
 
 ### Generate Full Datasets (1000 samples per class)
 ```bash
-uv run python scripts/prepare_stage_datasets.py --stage 1 --samples 8000
-uv run python scripts/prepare_stage_datasets.py --stage 2 --samples 8000
-uv run python scripts/prepare_stage_datasets.py --stage 3 --samples 8000
+uv run python scripts/prepare_stage_datasets.py --stage 1 --samples 800
+uv run python scripts/prepare_stage_datasets.py --stage 2 --samples 800
+uv run python scripts/prepare_stage_datasets.py --stage 3 --samples 800
 ```
 
 ### Generate 3D Visualizations
