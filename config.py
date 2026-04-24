@@ -84,6 +84,9 @@ SCENE_BOUNDS_Z_MAX = 0.4  # Maximum Z coordinate
 SCENE_MIN_OBJECT_DISTANCE = 0.25  # Minimum distance between objects (meters) - increased for safety
 SCENE_MAX_PLACEMENT_ATTEMPTS = 100  # Maximum attempts to place object without collision - increased
 
+# Object scaling
+OBJECT_SCALE_FACTOR = 1.0  # Scale factor for object size (1.0 = default size)
+
 # Episode limits
 MAX_STEPS_PER_EPISODE = 10
 
