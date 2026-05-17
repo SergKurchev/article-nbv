@@ -531,8 +531,6 @@ def load_nbv_active_odin(
 
     model = NBVActiveODIN(
         base_model=base_model,
-        coverage_head=CoverageHead(in_dim=256, hidden_dim=128),
-        nbv_head=NBVHead(scene_dim=256, hidden_dim=128),
         cfg=cfg,
     )
 
