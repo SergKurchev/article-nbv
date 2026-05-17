@@ -224,7 +224,7 @@ class ODINAdapter:
 
         # Подготовка входного батча в формате ODIN
         batched_inputs = self._build_odin_input(
-            images, depths, poses, intrinsics, multi_scale_xyz, original_xyz_list, pos_t, quat_t
+            images, depths, poses, intrinsics, multi_scale_xyz, original_xyz_list, pos_t, quat_t, rl_mode=True
         )
 
         # Прямой проход через модель
@@ -311,7 +311,7 @@ class ODINAdapter:
             original_xyz_list = None
 
         batched_inputs = self._build_odin_input(
-            images, depths, poses, intrinsics, multi_scale_xyz, original_xyz_list, pos_t, quat_t
+            images, depths, poses, intrinsics, multi_scale_xyz, original_xyz_list, pos_t, quat_t, rl_mode=True
         )
 
         # Прямой проход **с градиентами** через модель
@@ -395,7 +395,7 @@ class ODINAdapter:
         return multi_scale_xyz, None, original_xyz_list
 
     def _build_odin_input(
-        self, images, depths, poses, intrinsics, multi_scale_xyz, original_xyz_list, pos_t, quat_t
+        self, images, depths, poses, intrinsics, multi_scale_xyz, original_xyz_list, pos_t, quat_t, rl_mode: bool = False
     ) -> list[dict]:
         """Формируем список батч-дикшенариев в формате detectron2."""
         from detectron2.structures import Instances
@@ -438,6 +438,7 @@ class ODINAdapter:
             "coverage_gt": torch.tensor([0.0], dtype=torch.float32, device=self.device),
             "current_camera_position": pos_t,
             "current_camera_quaternion": quat_t,
+            "rl_mode": rl_mode,
         }
 
         if multi_scale_xyz is not None:
