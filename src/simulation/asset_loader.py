@@ -529,13 +529,22 @@ class AssetLoader:
 
     def clear_scene(self):
         """Clear all objects and obstacles from scene."""
+        try:
+            active_bodies = set(p.getBodyUniqueId(i, physicsClientId=self.client_id) for i in range(p.getNumBodies(physicsClientId=self.client_id)))
+        except p.error:
+            active_bodies = set()
+
         for obj_id in self.target_objects:
-            p.removeBody(obj_id, physicsClientId=self.client_id)
+            if obj_id in active_bodies:
+                try: p.removeBody(obj_id, physicsClientId=self.client_id)
+                except p.error: pass
         self.target_objects.clear()
         self.target_objects_classes.clear()
 
         for obs_id in self.obstacles:
-            p.removeBody(obs_id, physicsClientId=self.client_id)
+            if obs_id in active_bodies:
+                try: p.removeBody(obs_id, physicsClientId=self.client_id)
+                except p.error: pass
         self.obstacles.clear()
 
     def generate_obstacles(self):
@@ -580,6 +589,13 @@ class AssetLoader:
             self.obstacles.append(body_id)
             
     def clear_obstacles(self):
+        try:
+            active_bodies = set(p.getBodyUniqueId(i, physicsClientId=self.client_id) for i in range(p.getNumBodies(physicsClientId=self.client_id)))
+        except p.error:
+            active_bodies = set()
+
         for obs in self.obstacles:
-            p.removeBody(obs, physicsClientId=self.client_id)
+            if obs in active_bodies:
+                try: p.removeBody(obs, physicsClientId=self.client_id)
+                except p.error: pass
         self.obstacles.clear()
