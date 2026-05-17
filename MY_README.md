@@ -30,11 +30,49 @@ start dataset/primitives/stage1/sample_00000/visualization.html
 # CNN training
 uv run python src/vision/train_cnn.py
 
-# RL training
+# RL training (старый SAC-агент, без ODIN)
 uv run python train.py
 
 # Evaluation
 uv run python evaluate.py
+```
+
+### Train ODIN NBV Head as RL Agent (REINFORCE)
+```bash
+# Frozen backbone (рекомендуется — быстрее, стабильнее)
+uv run python train_odin_nbv_rl.py \
+    --odin_weights /path/to/model_final.pth \
+    --odin_cfg my_odin/configs/scannet_context/3d.yaml \
+    --freeze_backbone \
+    --total_episodes 500
+
+# End-to-end (backbone тоже обучается — медленнее, больше GPU памяти)
+uv run python train_odin_nbv_rl.py \
+    --odin_weights /path/to/model_final.pth \
+    --odin_cfg my_odin/configs/scannet_context/3d.yaml \
+    --total_episodes 500
+
+# Тесты (без GPU/ODIN зависимостей)
+uv run python -m pytest tests/test_odin_nbv_agent.py -v
+```
+
+### Train ODIN NBV Head as RL Agent (SAC) — рекомендуется
+```bash
+# SAC: off-policy, replay buffer, twin Q-critics, auto entropy
+uv run python train_odin_sac_rl.py \
+    --odin_weights /path/to/model_final.pth \
+    --odin_cfg my_odin/configs/scannet_context/3d.yaml \
+    --freeze_backbone \
+    --total_steps 100000
+
+# End-to-end SAC
+uv run python train_odin_sac_rl.py \
+    --odin_weights /path/to/model_final.pth \
+    --odin_cfg my_odin/configs/scannet_context/3d.yaml \
+    --total_steps 100000
+
+# Тесты SAC
+uv run python -m pytest tests/test_odin_sac_agent.py -v
 ```
 
 ### Update Kaggle Datasets
@@ -64,6 +102,155 @@ uv run python scripts/update_kaggle_datasets.py
 - **Objects**: 2-10 with uniform spatial distribution
 - **Obstacles**: 1-5 (gray panels)
 - **Purpose**: Occlusion handling
+
+---
+
+## ODIN NBV Head как RL-Агент (REINFORCE)
+
+### Архитектура
+
+```
+PyBullet Simulator
+       │
+       ▼
+   RGB-D кадр ──────────────────────────┐
+       │                                │
+       ▼                                ▼
+  ODIN Backbone                   Coverage Head
+  (ResNet + Pixel Decoder)        (scene features → p_hidden)
+       │                                │
+       ▼                                ▼
+  NBV Head ◄── current_pose      Reward = Δp_hidden
+       │
+       ▼
+  next_pos (3D) + next_quat (4D)  ←─  ACTION
+       │
+       ▼
+  PyBullet: робот перемещает камеру
+```
+
+**Ключевая идея:** NBV Head — это **и есть политика** RL-агента.
+Она принимает 3D-фичи сцены + текущую позу камеры и предсказывает
+следующую лучшую позицию обзора. Алгоритм REINFORCE обновляет
+веса NBV Head так, чтобы максимизировать снижение неопределённости
+(p_hidden), которое оценивает Coverage Head.
+
+**Нет отдельного SAC-агента.** Вся политика живёт внутри ODIN.
+
+### Два режима заморозки
+
+| Флаг | Что обучается | Что заморожено | GPU память | Скорость |
+|------|---------------|----------------|------------|----------|
+| `--freeze_backbone` | Только NBV Head | Backbone + Coverage Head | ~4 GB | Быстро |
+| *(без флага)* | Вся сеть end-to-end | Ничего | ~12+ GB | Медленно |
+
+- **`--freeze_backbone` (рекомендуется):** Backbone ODIN и Coverage Head
+  заморожены. Градиенты REINFORCE обновляют **только** NBV Head.
+  Coverage Head даёт стабильный сигнал награды (p_hidden не "плывёт").
+
+- **Без флага (end-to-end):** Градиенты текут через весь backbone.
+  Backbone адаптирует свои фичи под задачу NBV. Требует больше GPU
+  и может быть нестабильным — используйте малый lr и grad_clip.
+
+### Параметры CLI
+
+```
+--odin_weights PATH      Путь к .pth весам NBVActiveODIN
+--odin_cfg PATH          Путь к YAML конфигу ODIN
+--freeze_backbone        Заморозить backbone + Coverage Head
+--total_episodes N       Число эпизодов (default: 500)
+--lr FLOAT               Learning rate (default: 1e-4)
+--exploration_std FLOAT  Начальный шум Gaussian (default: 0.1)
+--std_decay FLOAT        Decay шума за эпизод (default: 0.999)
+--std_min FLOAT          Минимальный шум (default: 0.01)
+--gamma FLOAT            Discount factor (default: 0.99)
+--grad_clip FLOAT        Max gradient norm (default: 1.0)
+--scene_stage {1,2,3}    Стадия сцены (default: 2)
+--save_freq N            Checkpoint каждые N эпизодов (default: 50)
+--output_dir PATH        Папка для результатов
+```
+
+### Выходные файлы
+
+```
+output_nbv_rl/
+├── nbv_head_best.pth        # Лучшая политика (NBV Head веса)
+├── nbv_head_last.pth        # Последний checkpoint
+├── nbv_head_ep50.pth        # Промежуточные checkpoints
+├── nbv_head_ep100.pth
+├── nbv_rl_metrics.csv       # Метрики по эпизодам
+└── logs/
+    └── training_metrics.csv # Пошаговые метрики среды
+```
+
+### SAC vs REINFORCE — какой алгоритм выбрать?
+
+| | REINFORCE (`train_odin_nbv_rl.py`) | SAC (`train_odin_sac_rl.py`) |
+|---|---|---|
+| **Тип** | On-policy | Off-policy |
+| **Replay Buffer** | Нет | Да (50k transitions) |
+| **Sample efficiency** | Низкая | **Высокая** |
+| **Стабильность** | Высокая дисперсия | Twin Q + entropy |
+| **Скорость сходимости** | Медленная | **Быстрая** |
+| **Рекомендуется для** | Отладка, малые эксперименты | **Полное обучение** |
+
+### SAC: параметры CLI
+
+```
+--odin_weights PATH      Путь к .pth весам NBVActiveODIN
+--odin_cfg PATH          Путь к YAML конфигу ODIN
+--freeze_backbone        Заморозить backbone + Coverage Head
+--total_steps N          Общее число шагов (default: 100000)
+--lr_actor FLOAT         LR актора/NBV Head (default: 1e-4)
+--lr_critic FLOAT        LR Q-networks (default: 3e-4)
+--tau FLOAT              Soft update коэффициент (default: 0.005)
+--buffer_size N          Размер replay buffer (default: 50000)
+--batch_size N           Batch для SAC updates (default: 256)
+--learning_starts N      Шагов до начала обучения (default: 1000)
+--gamma FLOAT            Discount factor (default: 0.99)
+--grad_clip FLOAT        Max gradient norm (default: 1.0)
+--scene_stage {1,2,3}    Стадия сцены (default: 2)
+--output_dir PATH        Папка для результатов
+```
+
+### SAC: выходные файлы
+
+```
+output_odin_sac/
+├── best.pth             # Лучшая политика (NBV Head + Q-networks)
+├── last.pth             # Последний checkpoint
+├── ckpt_step5000.pth    # Промежуточные checkpoints
+├── sac_metrics.csv      # Метрики по эпизодам
+└── logs/
+    └── training_metrics.csv
+```
+
+### Запуск на Kaggle
+
+Датасет сцен **НЕ нужен** — среда PyBullet генерирует сцены динамически
+из 3D-мешей, которые уже есть в репозитории. Нужны только:
+1. **Веса ODIN** (`model_final.pth`) — загрузить как Kaggle Dataset.
+2. **GPU** (T4 x2 рекомендуется).
+3. **Internet: On** (для установки зависимостей).
+
+Пример запуска SAC в Kaggle-ноутбуке:
+```python
+# SAC (рекомендуется)
+!venv/bin/python nbv_rl/train_odin_sac_rl.py \
+    --odin_weights /kaggle/input/nbv-odin-weights/model_final.pth \
+    --odin_cfg my_odin/configs/scannet_context/3d.yaml \
+    --freeze_backbone \
+    --total_steps 50000 \
+    --output_dir ./output_odin_sac
+
+# REINFORCE (альтернатива)
+!venv/bin/python nbv_rl/train_odin_nbv_rl.py \
+    --odin_weights /kaggle/input/nbv-odin-weights/model_final.pth \
+    --odin_cfg my_odin/configs/scannet_context/3d.yaml \
+    --freeze_backbone \
+    --total_episodes 300 \
+    --output_dir ./output_nbv_rl
+```
 
 ---
 
@@ -170,9 +357,17 @@ All primitives use **counter-clockwise (CCW) winding order** when viewed from ou
 
 ### Training
 - `src/vision/train_cnn.py` - CNN training
-- `train.py` - RL training
+- `train.py` - RL training (старый SAC, без ODIN)
+- `train_odin_sac_rl.py` - **SAC: NBV Head = RL actor** ⭐ рекомендуется
+- `train_odin_nbv_rl.py` - REINFORCE: NBV Head = RL policy
+- `train_odin_rl.py` - SAC + ODIN как сенсор (устаревший)
 - `evaluate.py` - Evaluation
 - `gui.py` - Interactive GUI
+
+### Tests
+- `tests/test_odin_sac_agent.py` - Mock-тесты SAC + NBV Head (без GPU/ODIN)
+- `tests/test_odin_nbv_agent.py` - Mock-тесты REINFORCE + NBV Head
+- `tests/test_odin_adapter.py` - Тесты ODINAdapter
 
 ---
 
