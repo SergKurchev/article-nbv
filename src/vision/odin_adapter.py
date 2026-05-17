@@ -521,6 +521,12 @@ def load_nbv_active_odin(
 
     # Строим базовую ODIN модель
     from detectron2.modeling import build_model
+    from detectron2.data import MetadataCatalog
+    if len(cfg.DATASETS.TRAIN) > 0:
+        dataset_name = cfg.DATASETS.TRAIN[0]
+        meta = MetadataCatalog.get(dataset_name)
+        if not hasattr(meta, "thing_classes") or not meta.thing_classes:
+            meta.set(thing_classes=[f"class_{i}" for i in range(num_classes)])
     base_model = build_model(cfg)
 
     model = NBVActiveODIN(
