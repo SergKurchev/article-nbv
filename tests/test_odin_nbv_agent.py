@@ -84,7 +84,7 @@ class MockNBVActiveODIN(nn.Module):
         self.coverage_head = MockCoverageHead(in_dim=feat_dim)
         self.nbv_head = MockNBVHead(in_dim=feat_dim)
 
-    def forward(self, batched_inputs, current_position=None, current_quaternion=None):
+    def forward(self, batched_inputs):
         # Берём первое изображение из батча
         bi = batched_inputs[0]
         img = bi["image"].unsqueeze(0)  # (1, C, H, W)
@@ -97,8 +97,8 @@ class MockNBVActiveODIN(nn.Module):
 
         p_hidden = self.coverage_head(features)  # (1, 1)
 
-        pos = current_position if current_position is not None else torch.zeros(1, 3)
-        quat = current_quaternion if current_quaternion is not None else torch.tensor([[0., 0., 0., 1.]])
+        pos = bi["current_camera_position"].unsqueeze(0) if "current_camera_position" in bi else torch.zeros(1, 3)
+        quat = bi["current_camera_quaternion"].unsqueeze(0) if "current_camera_quaternion" in bi else torch.tensor([[0., 0., 0., 1.]])
         nbv_pos, nbv_quat = self.nbv_head(features, pos.to(features.device), quat.to(features.device))
 
         return {
@@ -143,11 +143,11 @@ class MockODINAdapter:
             }
 
         frame = self._frame_buffer[-1]
-        pos_t = torch.tensor(current_pos, dtype=torch.float32, device=self.device).unsqueeze(0)
-        quat_t = torch.tensor(current_quat, dtype=torch.float32, device=self.device).unsqueeze(0)
+        pos_t = torch.tensor(current_pos, dtype=torch.float32, device=self.device)
+        quat_t = torch.tensor(current_quat, dtype=torch.float32, device=self.device)
 
-        batched_inputs = [{"image": frame["image"].to(self.device)}]
-        outputs = self.model(batched_inputs, current_position=pos_t, current_quaternion=quat_t)
+        batched_inputs = [{"image": frame["image"].to(self.device), "current_camera_position": pos_t, "current_camera_quaternion": quat_t}]
+        outputs = self.model(batched_inputs)
 
         prev_p = self.last_p_hidden
         p_hidden = torch.sigmoid(outputs["p_hidden"]).detach().item()

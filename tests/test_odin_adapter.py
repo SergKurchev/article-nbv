@@ -197,7 +197,7 @@ class FakeODINModel(torch.nn.Module):
         super().__init__()
         self.p_val = p_hidden_val
 
-    def forward(self, batched_inputs, current_position=None, current_quaternion=None):
+    def forward(self, batched_inputs):
         return {
             "p_hidden": torch.tensor([[self.p_val]]),
             "nbv_pos":  torch.tensor([[0.3, 0.1, 0.5]]),

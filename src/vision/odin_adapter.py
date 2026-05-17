@@ -208,8 +208,8 @@ class ODINAdapter:
         intrinsics = torch.stack([f["intrinsics"] for f in frames]).to(self.device) # (N, 3, 3)
 
         # Текущая поза камеры
-        pos_t = torch.tensor(current_pos, dtype=torch.float32, device=self.device).unsqueeze(0)   # (1, 3)
-        quat_t = torch.tensor(current_quat, dtype=torch.float32, device=self.device).unsqueeze(0) # (1, 4)
+        pos_t = torch.tensor(current_pos, dtype=torch.float32, device=self.device)   # (3,)
+        quat_t = torch.tensor(current_quat, dtype=torch.float32, device=self.device) # (4,)
 
         # Backprojection через ODIN утилиты
         try:
@@ -224,12 +224,12 @@ class ODINAdapter:
 
         # Подготовка входного батча в формате ODIN
         batched_inputs = self._build_odin_input(
-            images, depths, poses, intrinsics, multi_scale_xyz, original_xyz_list
+            images, depths, poses, intrinsics, multi_scale_xyz, original_xyz_list, pos_t, quat_t
         )
 
         # Прямой проход через модель
         try:
-            outputs = self.model(batched_inputs, current_position=pos_t, current_quaternion=quat_t)
+            outputs = self.model(batched_inputs)
         except Exception as e:
             logger.error(f"ODIN forward pass failed: {e}")
             return self._empty_result()
@@ -296,8 +296,8 @@ class ODINAdapter:
         poses = torch.stack([f["pose"] for f in frames]).to(self.device)
         intrinsics = torch.stack([f["intrinsics"] for f in frames]).to(self.device)
 
-        pos_t = torch.tensor(current_pos, dtype=torch.float32, device=self.device).unsqueeze(0)
-        quat_t = torch.tensor(current_quat, dtype=torch.float32, device=self.device).unsqueeze(0)
+        pos_t = torch.tensor(current_pos, dtype=torch.float32, device=self.device)
+        quat_t = torch.tensor(current_quat, dtype=torch.float32, device=self.device)
 
         # Backprojection (без градиентов — это геометрическая операция)
         try:
@@ -311,13 +311,13 @@ class ODINAdapter:
             original_xyz_list = None
 
         batched_inputs = self._build_odin_input(
-            images, depths, poses, intrinsics, multi_scale_xyz, original_xyz_list
+            images, depths, poses, intrinsics, multi_scale_xyz, original_xyz_list, pos_t, quat_t
         )
 
         # Прямой проход **с градиентами** через модель
         # Градиенты потекут только через те параметры, у которых requires_grad=True
         try:
-            outputs = self.model(batched_inputs, current_position=pos_t, current_quaternion=quat_t)
+            outputs = self.model(batched_inputs)
         except Exception as e:
             logger.error(f"ODIN RL forward pass failed: {e}")
             return self._empty_result_rl()
@@ -395,7 +395,7 @@ class ODINAdapter:
         return multi_scale_xyz, None, original_xyz_list
 
     def _build_odin_input(
-        self, images, depths, poses, intrinsics, multi_scale_xyz, original_xyz_list
+        self, images, depths, poses, intrinsics, multi_scale_xyz, original_xyz_list, pos_t, quat_t
     ) -> list[dict]:
         """Формируем список батч-дикшенариев в формате detectron2."""
         from detectron2.structures import Instances
@@ -430,10 +430,10 @@ class ODINAdapter:
             "multiplier": 1.0,
             "valids": [d > 0.001 for d in depths],
             "length": n,
-            # Coverage/NBV поля (заглушки для inference)
+            # Coverage/NBV поля
             "coverage_gt": torch.tensor([0.0], dtype=torch.float32, device=self.device),
-            "current_camera_position": torch.zeros(3, dtype=torch.float32, device=self.device),
-            "current_camera_quaternion": torch.tensor([0.0, 0.0, 0.0, 1.0], dtype=torch.float32, device=self.device),
+            "current_camera_position": pos_t,
+            "current_camera_quaternion": quat_t,
         }
 
         if multi_scale_xyz is not None:

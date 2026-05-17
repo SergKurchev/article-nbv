@@ -54,13 +54,13 @@ class MockNBVActiveODIN(nn.Module):
         self.backbone = MockBackbone(d)
         self.coverage_head = MockCoverageHead(d)
         self.nbv_head = MockNBVHead(d)
-    def forward(self, bi, current_position=None, current_quaternion=None):
+    def forward(self, bi):
         img = bi[0]["image"].unsqueeze(0)
         if img.shape[1] == 3:
             img = torch.cat([img, torch.zeros(1,1,img.shape[2],img.shape[3],device=img.device)], 1)
         f = self.backbone(img)
-        p = current_position if current_position is not None else torch.zeros(1,3)
-        q = current_quaternion if current_quaternion is not None else torch.tensor([[0.,0.,0.,1.]])
+        p = bi[0]["current_camera_position"].unsqueeze(0) if "current_camera_position" in bi[0] else torch.zeros(1,3)
+        q = bi[0]["current_camera_quaternion"].unsqueeze(0) if "current_camera_quaternion" in bi[0] else torch.tensor([[0.,0.,0.,1.]])
         nbv_p, nbv_q = self.nbv_head(f, p.to(f.device), q.to(f.device))
         return {"p_hidden": self.coverage_head(f), "nbv_pos": nbv_p, "nbv_quat": nbv_q}
 
@@ -166,9 +166,9 @@ class TestSACTrainingLoop:
         for _ in range(5):
             # Simulate forward
             rgb = torch.randn(3, 64, 64)
-            pos_t = torch.randn(1, 3)
-            quat_t = torch.tensor([[0., 0., 0., 1.]])
-            outputs = model([{"image": rgb}], current_position=pos_t, current_quaternion=quat_t)
+            pos_t = torch.randn(3)
+            quat_t = torch.tensor([0., 0., 0., 1.])
+            outputs = model([{"image": rgb, "current_camera_position": pos_t, "current_camera_quaternion": quat_t}])
 
             nbv_pos = outputs["nbv_pos"].squeeze()
             nbv_quat = outputs["nbv_quat"].squeeze()
@@ -209,9 +209,7 @@ class TestSACTrainingLoop:
 
         for _ in range(3):
             outputs = model(
-                [{"image": torch.randn(3, 64, 64)}],
-                current_position=torch.randn(1, 3),
-                current_quaternion=torch.tensor([[0.,0.,0.,1.]]),
+                [{"image": torch.randn(3, 64, 64), "current_camera_position": torch.randn(3), "current_camera_quaternion": torch.tensor([0.,0.,0.,1.])}]
             )
             mean = torch.cat([outputs["nbv_pos"].squeeze(), outputs["nbv_quat"].squeeze()[:3]])
             dist = torch.distributions.Normal(mean, log_std.exp().clamp(min=1e-4))
