@@ -430,6 +430,10 @@ class ODINAdapter:
             "multiplier": 1.0,
             "valids": [d > 0.001 for d in depths],
             "length": n,
+            "file_name": "synthetic/scene_0001/color/00000.jpg",
+            "file_names": ["synthetic/scene_0001/color/00000.jpg"] * n,
+            "depth_file_names": ["synthetic/scene_0001/depth/00000.png"] * n,
+            "masks_file_names": ["synthetic/scene_0001/mask/00000.png"] * n,
             # Coverage/NBV поля
             "coverage_gt": torch.tensor([0.0], dtype=torch.float32, device=self.device),
             "current_camera_position": pos_t,
