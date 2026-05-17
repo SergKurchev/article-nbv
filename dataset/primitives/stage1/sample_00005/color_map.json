@@ -6,9 +6,9 @@
       0
     ],
     "instance_id": 0,
-    "category_id": 6,
+    "category_id": 1,
     "category_name": "target_object",
-    "texture_type": "green"
+    "texture_type": "red"
   },
   {
     "color": [

@@ -215,31 +215,33 @@ NBV with Obstacles and Robot - Skoltech Reinforcement Learning Project
 
     print(f"Created metadata: {output_file}")
 
-def prepare_stage_dataset(stage, num_samples=100):
-    """Generate and verify dataset for a specific stage."""
+def prepare_stage_dataset(stage, num_samples=None, gui=False):
+    """Generate and verify a single stage dataset."""
     print(f"\n{'='*60}")
     print(f"Preparing Stage {stage} Dataset")
     print(f"{'='*60}")
-
-    # Update config
+    
+    # Save original config
     original_stage = config.SCENE_STAGE
     original_samples = config.DATASET_SAMPLES_PER_CLASS
-
+    
+    # Update config for this stage
     config.SCENE_STAGE = stage
-    config.DATASET_SAMPLES_PER_CLASS = num_samples // config.NUM_CLASSES
-
-    # Set dataset directory
+    if num_samples:
+        config.DATASET_SAMPLES_PER_CLASS = num_samples // config.NUM_CLASSES
+    
     dataset_dir = config.BASE_DIR / "dataset" / config.OBJECT_MODE / f"stage{stage}"
     config.DATASET_DIR = dataset_dir
 
     print(f"Stage: {stage}")
     print(f"Samples per class: {config.DATASET_SAMPLES_PER_CLASS}")
-    print(f"Total samples: {config.DATASET_SAMPLES_PER_CLASS * config.NUM_CLASSES}")
+    total_samples = config.DATASET_SAMPLES_PER_CLASS * config.NUM_CLASSES
+    print(f"Total samples: {total_samples}")
     print(f"Output directory: {dataset_dir}")
 
     # Generate dataset
     from src.vision.dataset_stage import generate_stage_dataset
-    generate_stage_dataset()
+    generate_stage_dataset(use_gui=gui)
 
     # Verify dataset
     is_valid = verify_dataset(dataset_dir, f"Stage {stage}")
@@ -271,6 +273,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--stage", type=int, choices=[1, 2, 3], help="Generate specific stage only")
     parser.add_argument("--samples", type=int, default=100, help="Total samples to generate (default: 100)")
+    parser.add_argument("--gui", action="store_true", help="Show PyBullet GUI during generation")
     parser.add_argument("--verify-only", action="store_true", help="Only verify existing datasets")
     args = parser.parse_args()
 
@@ -286,7 +289,7 @@ if __name__ == "__main__":
 
         results = {}
         for stage in stages:
-            is_valid, dataset_dir = prepare_stage_dataset(stage, num_samples=args.samples)
+            is_valid, dataset_dir = prepare_stage_dataset(stage, num_samples=args.samples, gui=args.gui)
             results[stage] = (is_valid, dataset_dir)
 
         # Summary

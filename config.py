@@ -61,15 +61,15 @@ TEXTURE_PATH = DATA_DIR / "objects" / "texture.png" # Common texture at root
 # Stage 1: Single object, no obstacles
 # Stage 2: Multiple objects (2-10), no obstacles
 # Stage 3: Multiple objects (2-10) + obstacles
-SCENE_STAGE = 1  # Options: 1, 2, 3
+SCENE_STAGE = 2  # Options: 1, 2, 3
 
 # Stage 2 & 3: Multi-object parameters
 MIN_OBJECTS = 2  # Minimum number of objects in multi-object scenes
 MAX_OBJECTS = 10  # Maximum number of objects in multi-object scenes
 
 # Stage 3: Obstacle parameters
-MIN_OBSTACLES = 1  # Minimum number of obstacles
-MAX_OBSTACLES = 5  # Maximum number of obstacles
+MIN_OBSTACLES = 3  # Minimum number of obstacles
+MAX_OBSTACLES = 7  # Maximum number of obstacles
 
 # Spatial distribution bounds for Stage 2 & 3
 # Objects and obstacles are placed within this volume
@@ -81,17 +81,18 @@ SCENE_BOUNDS_Z_MIN = 0.15  # Minimum Z coordinate (above ground) - raised to pre
 SCENE_BOUNDS_Z_MAX = 0.4  # Maximum Z coordinate
 
 # Collision detection for object placement
-SCENE_MIN_OBJECT_DISTANCE = 0.25  # Minimum distance between objects (meters) - increased for safety
+SCENE_MIN_OBJECT_DISTANCE = 0.15  # Reduced from 0.25 to allow more objects
 SCENE_MAX_PLACEMENT_ATTEMPTS = 100  # Maximum attempts to place object without collision - increased
 
-# Object scaling
+# Object and obstacle scaling
 OBJECT_SCALE_FACTOR = 1.0  # Scale factor for object size (1.0 = default size)
+OBSTACLE_SCALE_FACTOR = 1.0  # Scale factor for obstacle size (1.0 = default size)
 
 # Episode limits
 MAX_STEPS_PER_EPISODE = 10
 
 # Camera
-IMAGE_SIZE = 224
+IMAGE_SIZE = 256 # Увеличено для лучшей работы ODIN
 IMAGE_CHANNELS = 4 # RGB + Depth
 CAMERA_POS = [1.0, 0.0, 0.5]
 CAMERA_TARGET = [0.0, 0.0, 0.2]
@@ -109,7 +110,7 @@ ACTION_MIN = [0.2, -0.5, 0.0, -3.14, -3.14, -3.14]
 ACTION_MAX = [0.8, 0.5, 0.8, 3.14, 3.14, 3.14]
 
 # Reward shaping
-REWARD_SCALE = 10.0
+REWARD_SCALE = 20.0 # Увеличено, так как delta_p_hidden может быть малой
 PENALTY_OOB = -10.0
 PENALTY_COLLISION = -15.0  # Отдельный (более строгий) штраф за столкновение
 
@@ -123,7 +124,7 @@ PLOT_MOVING_AVERAGE_WINDOW = 50
 # --- Dataset Generation ---
 DATASET_SAMPLES_PER_CLASS = 1000
 DATASET_VIEWS_PER_SAMPLE = 5  # Number of camera views around each object
-DATASET_MIN_VALID_VIEWS = 5  # Minimum valid views to keep a sample
+DATASET_MIN_VALID_VIEWS = 3  # Minimum valid views to keep a sample (reduced from 5)
 DATASET_MIN_OBJECT_PIXELS = 50  # Minimum visible pixels to consider view valid
 DATASET_PLACEMENT_ATTEMPTS = 20  # Max attempts to find collision-free placement
 DATASET_COLLISION_MARGIN = 0.005  # Collision detection margin in meters

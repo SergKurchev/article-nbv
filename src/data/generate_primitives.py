@@ -71,7 +71,7 @@ def get_box_faces(dx, dy, dz):
         [2,7,3], [2,6,7], # back (+Y face)
         [3,4,0], [3,7,4]  # left (-X face)
     ]
-    return [[v[i] for i in face] for face in indices]
+    return [[v[i] for i in reversed(face)] for face in indices]
 
 def get_sphere_faces(radius, rings=16, sectors=16):
     R = 1.0/(rings-1)
@@ -144,8 +144,8 @@ def get_cone_faces(radius, height, sectors=32):
         i1 = base_idx + s
         i2 = base_idx + s_next
         # Fixed winding order for outward normals
-        faces.append([v[0], v[i2], v[i1]]) # side (tip to base, counter-clockwise)
-        faces.append([v[1], v[i1], v[i2]]) # base (center to edge, counter-clockwise from below)
+        faces.append([v[0], v[i1], v[i2]]) # side (tip to base, counter-clockwise)
+        faces.append([v[1], v[i2], v[i1]]) # base (center to edge, counter-clockwise from below)
     return faces
 
 def get_hourglass_faces(radius, height, sectors=32):
@@ -153,7 +153,7 @@ def get_hourglass_faces(radius, height, sectors=32):
     # Upper cone: tip at origin, base at top
     faces1 = get_cone_faces(radius, height/2, sectors)
     # Flip vertically so tip is at origin and base is at +height/2
-    f1 = [[[vx, vy, -vz + height/4] for vx, vy, vz in face] for face in faces1]
+    f1 = [[[vx, vy, -vz + height/4] for vx, vy, vz in reversed(face)] for face in faces1]
 
     # Lower cone: tip at origin, base at bottom
     faces2 = get_cone_faces(radius, height/2, sectors)
@@ -171,9 +171,9 @@ def get_pyramid_faces(base, height):
     ]
     # Fixed winding order for outward normals
     return [
-        [v[0], v[2], v[1]], [v[0], v[3], v[2]],  # sides (counter-clockwise from outside)
-        [v[0], v[4], v[3]], [v[0], v[1], v[4]],
-        [v[1], v[2], v[4]], [v[2], v[3], v[4]]   # base (counter-clockwise from below)
+        [v[0], v[1], v[2]], [v[0], v[2], v[3]],  # sides (counter-clockwise from outside)
+        [v[0], v[3], v[4]], [v[0], v[4], v[1]],
+        [v[1], v[4], v[2]], [v[2], v[4], v[3]]   # base (counter-clockwise from below)
     ]
 
 def get_octahedron(size):

@@ -6,9 +6,9 @@
       0
     ],
     "instance_id": 0,
-    "category_id": 5,
+    "category_id": 1,
     "category_name": "target_object",
-    "texture_type": "mixed"
+    "texture_type": "red"
   },
   {
     "color": [
@@ -17,75 +17,9 @@
       0
     ],
     "instance_id": 1,
-    "category_id": 7,
-    "category_name": "target_object",
-    "texture_type": "red"
-  },
-  {
-    "color": [
-      235,
-      0,
-      0
-    ],
-    "instance_id": 2,
-    "category_id": 3,
-    "category_name": "target_object",
-    "texture_type": "green"
-  },
-  {
-    "color": [
-      225,
-      0,
-      0
-    ],
-    "instance_id": 3,
-    "category_id": 2,
-    "category_name": "target_object",
-    "texture_type": "mixed"
-  },
-  {
-    "color": [
-      215,
-      0,
-      0
-    ],
-    "instance_id": 4,
     "category_id": 6,
     "category_name": "target_object",
     "texture_type": "green"
-  },
-  {
-    "color": [
-      205,
-      0,
-      0
-    ],
-    "instance_id": 5,
-    "category_id": 5,
-    "category_name": "target_object",
-    "texture_type": "mixed"
-  },
-  {
-    "color": [
-      195,
-      0,
-      0
-    ],
-    "instance_id": 6,
-    "category_id": 8,
-    "category_name": "target_object",
-    "texture_type": "mixed"
-  },
-  {
-    "color": [
-      185,
-      0,
-      0
-    ],
-    "instance_id": 7,
-    "category_id": 7,
-    "category_name": "target_object",
-    "texture_type": "red"
   },
   {
     "color": [
@@ -93,8 +27,28 @@
       255,
       0
     ],
-    "instance_id": 8,
+    "instance_id": 2,
     "category_id": 9,
     "category_name": "robot"
+  },
+  {
+    "color": [
+      0,
+      0,
+      255
+    ],
+    "instance_id": 3,
+    "category_id": 10,
+    "category_name": "obstacle"
+  },
+  {
+    "color": [
+      0,
+      0,
+      245
+    ],
+    "instance_id": 4,
+    "category_id": 10,
+    "category_name": "obstacle"
   }
 ]

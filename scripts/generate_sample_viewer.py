@@ -48,7 +48,7 @@ def quat_to_rotmat(qx, qy, qz, qw):
 
 
 def unproject_frame(depth, rgb, mask, fx, fy, cx, cy, cam_pos, cam_target, cam_up,
-                    color_to_info, stride=1, max_depth=5.0):
+                    color_to_info, stride=1, max_depth=5.0, view_idx=0, cam_quat=None):
     """
     Project one frame into world-space points using PyBullet view matrix convention.
 
@@ -68,23 +68,29 @@ def unproject_frame(depth, rgb, mask, fx, fy, cx, cy, cam_pos, cam_target, cam_u
     Y_cam = -(vv - cy) * Z / fy  # Flip Y for OpenGL
     Z_cam = -Z  # Forward is -Z in OpenGL
 
-    # Build camera-to-world transform from PyBullet view parameters
-    cam_pos = np.array(cam_pos, dtype=np.float64)
-    cam_target = np.array(cam_target, dtype=np.float64)
-    cam_up = np.array(cam_up, dtype=np.float64)
+    if cam_quat is not None:
+        # Use provided rotation quaternion (most accurate)
+        qx, qy, qz, qw = cam_quat
+        R = quat_to_rotmat(qx, qy, qz, qw)
+        # Note: quat_to_rotmat returns CameraToWorld if constructed from inverse view matrix
+    else:
+        # Build camera-to-world transform from PyBullet view parameters
+        cam_pos = np.array(cam_pos, dtype=np.float64)
+        cam_target = np.array(cam_target, dtype=np.float64)
+        cam_up = np.array(cam_up, dtype=np.float64)
 
-    # Camera coordinate frame
-    forward = cam_target - cam_pos
-    forward = forward / (np.linalg.norm(forward) + 1e-12)
+        # Camera coordinate frame
+        forward = cam_target - cam_pos
+        forward = forward / (np.linalg.norm(forward) + 1e-12)
 
-    right = np.cross(forward, cam_up)
-    right = right / (np.linalg.norm(right) + 1e-12)
+        right = np.cross(forward, cam_up)
+        right = right / (np.linalg.norm(right) + 1e-12)
 
-    up = np.cross(right, forward)
-    up = up / (np.linalg.norm(up) + 1e-12)
+        up = np.cross(right, forward)
+        up = up / (np.linalg.norm(up) + 1e-12)
 
-    # Camera-to-world rotation matrix
-    R = np.column_stack([right, up, -forward])
+        # Camera-to-world rotation matrix
+        R = np.column_stack([right, up, -forward])
 
     pts_cam = np.stack([X_cam, Y_cam, Z_cam], axis=-1)
     pts_world = pts_cam @ R.T + cam_pos
@@ -110,8 +116,9 @@ def unproject_frame(depth, rgb, mask, fx, fy, cx, cy, cam_pos, cam_target, cam_u
     b = rgb_s[:,:,2].ravel()[fv].astype(np.float32)
     inst = inst_img.ravel()[fv].astype(np.float32)
     cat = cat_img.ravel()[fv].astype(np.float32)
+    vi = np.full(len(pts), view_idx, dtype=np.float32)
 
-    return np.column_stack([pts, r, g, b, inst, cat]).astype(np.float32)
+    return np.column_stack([pts, r, g, b, inst, cat, vi]).astype(np.float32)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -127,7 +134,7 @@ def build_pointcloud(sample_path, cameras, color_map, stride, max_points):
         color_to_info[color_tuple] = entry
 
     chunks = []
-    for view_id, cam_data in cameras.items():
+    for idx, (view_id, cam_data) in enumerate(cameras.items()):
         depth_p = sample_path / "depth" / f"{view_id}.npy"
         rgb_p = sample_path / "rgb" / f"{view_id}.png"
         mask_p = sample_path / "masks" / f"{view_id}.png"
@@ -155,14 +162,16 @@ def build_pointcloud(sample_path, cameras, color_map, stride, max_points):
             cam_target = np.array([0.5, 0.0, 0.2], dtype=np.float64)
             cam_up = np.array([0, 0, 1], dtype=np.float64)
 
+        cam_quat = cam_data.get("rotation")
+
         chunk = unproject_frame(depth, rgb, mask, fx, fy, cx, cy,
                                 cam_pos, cam_target, cam_up,
-                                color_to_info, stride=stride)
+                                color_to_info, stride=stride, view_idx=idx, cam_quat=cam_quat)
         chunks.append(chunk)
         print(f"  View {view_id}: {len(chunk):>8,} pts")
 
     if not chunks:
-        return np.zeros((0, 8), dtype=np.float32)
+        return np.zeros((0, 9), dtype=np.float32)
 
     pts = np.concatenate(chunks, axis=0)
 
@@ -188,20 +197,24 @@ def frustum_lines(cam_data, size=0.06):
     half_h = H / 2 / fy * size
 
     cam_pos = np.array(cam_data["position"], dtype=np.float64)
-    cam_target = np.array([0.5, 0.0, 0.2], dtype=np.float64)
-    cam_up = np.array([0, 0, 1], dtype=np.float64)
+    cam_target = np.array(cam_data.get("target", [0.5, 0.0, 0.2]), dtype=np.float64)
+    cam_up = np.array(cam_data.get("up", [0, 0, 1]), dtype=np.float64)
 
-    # Build camera frame
-    forward = cam_target - cam_pos
-    forward = forward / (np.linalg.norm(forward) + 1e-12)
+    if "rotation" in cam_data:
+        qx, qy, qz, qw = cam_data["rotation"]
+        R = quat_to_rotmat(qx, qy, qz, qw)
+    else:
+        # Build camera frame manually
+        forward = cam_target - cam_pos
+        forward = forward / (np.linalg.norm(forward) + 1e-12)
 
-    right = np.cross(forward, cam_up)
-    right = right / (np.linalg.norm(right) + 1e-12)
+        right = np.cross(forward, cam_up)
+        right = right / (np.linalg.norm(right) + 1e-12)
 
-    up = np.cross(right, forward)
-    up = up / (np.linalg.norm(up) + 1e-12)
+        up = np.cross(right, forward)
+        up = up / (np.linalg.norm(up) + 1e-12)
 
-    R = np.column_stack([right, up, -forward])
+        R = np.column_stack([right, up, -forward])
 
     # Four corners at depth=size in camera space (OpenGL convention)
     corners_cam = np.array([
@@ -294,10 +307,11 @@ def build_html(pts, cameras, color_map, sample_name, stage):
         bs = np.clip(pts[:, 5], 0, 255).astype(np.uint8)
         insts = pts[:, 6].astype(np.int32)
         cats = pts[:, 7].astype(np.int32)
+        views = pts[:, 8].astype(np.int32)
     else:
         xs = ys = zs = np.zeros(0, np.float32)
         rs = gs = bs = np.zeros(0, np.uint8)
-        insts = cats = np.zeros(0, np.int32)
+        insts = cats = views = np.zeros(0, np.int32)
 
     js_xs = compact_float_array(xs)
     js_ys = compact_float_array(ys)
@@ -307,6 +321,7 @@ def build_html(pts, cameras, color_map, sample_name, stage):
     js_bs = "new Uint8Array([" + ",".join(str(v) for v in bs) + "])"
     js_insts = "new Int32Array([" + ",".join(str(v) for v in insts) + "])"
     js_cats = "new Int32Array([" + ",".join(str(v) for v in cats) + "])"
+    js_views = "new Int32Array([" + ",".join(str(v) for v in views) + "])"
 
     # Frustum line endpoints
     fl = frustum_arr.ravel()
@@ -405,6 +420,10 @@ canvas{{width:100%!important;height:100%!important;display:block}}
   <button class="btn active" id="btnCamDots"  onclick="toggleCamDots()">Cam Dots</button>
   <div class="sep"></div>
   <button class="btn" onclick="resetCamera()">Reset View</button>
+  <div class="sep"></div>
+  <div id="camera-toggles" style="display:flex; gap:4px; align-items:center;">
+    <span style="font-size:12px;color:#8b949e">Views:</span>
+  </div>
 </div>
 
 <div id="legend"></div>
@@ -435,6 +454,7 @@ const GS    = {js_gs};
 const BS    = {js_bs};
 const INSTS = {js_insts};
 const CATS  = {js_cats};
+const VIEWS = {js_views};
 const N     = XS.length;
 
 const FRUSTUM_SEGS = {js_frustum};
@@ -466,39 +486,71 @@ const geo = new THREE.BufferGeometry();
 const posArr = new Float32Array(N * 3);
 const colArr = new Float32Array(N * 3);
 
-for (let i = 0; i < N; i++) {{
-    posArr[i*3]   = XS[i]; posArr[i*3+1] = YS[i]; posArr[i*3+2] = ZS[i];
-}}
-
 geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
 geo.setAttribute('color',    new THREE.BufferAttribute(colArr, 3));
 
 let currentMode = 'rgb';
+const activeViews = new Set();
+const numCameras = CAM_POSITIONS.length;
+for (let i = 0; i < numCameras; i++) activeViews.add(i);
+
+const camTogglesDiv = document.getElementById('camera-toggles');
+for (let i = 0; i < numCameras; i++) {{
+    const btn = document.createElement('button');
+    btn.className = 'btn active';
+    btn.innerText = `Cam ${{i}}`;
+    btn.onclick = () => {{
+        if (activeViews.has(i)) {{
+            activeViews.delete(i);
+            btn.classList.remove('active');
+        }} else {{
+            activeViews.add(i);
+            btn.classList.add('active');
+        }}
+        rebuildPoints();
+    }};
+    camTogglesDiv.appendChild(btn);
+}}
+
+function rebuildPoints() {{
+    let count = 0;
+    for (let i = 0; i < N; i++) {{
+        if (activeViews.has(VIEWS[i])) {{
+            posArr[count*3]   = XS[i];
+            posArr[count*3+1] = YS[i];
+            posArr[count*3+2] = ZS[i];
+            
+            let r, g, b;
+            if (currentMode === 'rgb') {{
+                r = RS[i]/255; g = GS[i]/255; b = BS[i]/255;
+            }} else if (currentMode === 'cat') {{
+                const val = CATS[i];
+                const key = String(val);
+                const col = SEG_PALETTE[key] || [80, 80, 80];
+                r = col[0]/255; g = col[1]/255; b = col[2]/255;
+            }} else if (currentMode === 'inst') {{
+                const inst = INSTS[i];
+                if (inst < 0) {{
+                    r = 0.3; g = 0.3; b = 0.3;
+                }} else {{
+                    const hash = (inst * 2654435761) >>> 0;
+                    r = ((hash >>> 16) & 0xFF) / 255;
+                    g = ((hash >>> 8) & 0xFF) / 255;
+                    b = (hash & 0xFF) / 255;
+                }}
+            }}
+            colArr[count*3] = r; colArr[count*3+1] = g; colArr[count*3+2] = b;
+            count++;
+        }}
+    }}
+    geo.setDrawRange(0, count);
+    geo.attributes.position.needsUpdate = true;
+    geo.attributes.color.needsUpdate = true;
+}}
 
 function applyColors(mode) {{
-    for (let i = 0; i < N; i++) {{
-        let r, g, b;
-        if (mode === 'rgb') {{
-            r = RS[i]/255; g = GS[i]/255; b = BS[i]/255;
-        }} else if (mode === 'cat') {{
-            const val = CATS[i];
-            const key = String(val);
-            const col = SEG_PALETTE[key] || [80, 80, 80];
-            r = col[0]/255; g = col[1]/255; b = col[2]/255;
-        }} else if (mode === 'inst') {{
-            const inst = INSTS[i];
-            if (inst < 0) {{
-                r = 0.3; g = 0.3; b = 0.3;
-            }} else {{
-                const hash = (inst * 2654435761) >>> 0;
-                r = ((hash >>> 16) & 0xFF) / 255;
-                g = ((hash >>> 8) & 0xFF) / 255;
-                b = (hash & 0xFF) / 255;
-            }}
-        }}
-        colArr[i*3]=r; colArr[i*3+1]=g; colArr[i*3+2]=b;
-    }}
-    geo.attributes.color.needsUpdate = true;
+    currentMode = mode;
+    rebuildPoints();
 }}
 
 applyColors('rgb');

@@ -505,12 +505,9 @@ def load_nbv_active_odin(
     cfg.MODEL.DEVICE = str(device)
     cfg.freeze()
 
-    # Строим базовую ODIN модель
-    from detectron2.modeling import build_model
-    base_model = build_model(cfg)
-
     # Оборачиваем в NBVActiveODIN (из my_train_odin.py)
     # Важно: импортируем из репозитория my_odin, добавленного в sys.path
+    # Делаем это ДО build_model, чтобы зарегистрировать датасеты в MetadataCatalog
     try:
         from my_train_odin import (
             NBVActiveODIN, CoverageHead, NBVHead
@@ -521,6 +518,10 @@ def load_nbv_active_odin(
         from my_train_odin import (
             NBVActiveODIN, CoverageHead, NBVHead
         )
+
+    # Строим базовую ODIN модель
+    from detectron2.modeling import build_model
+    base_model = build_model(cfg)
 
     model = NBVActiveODIN(
         base_model=base_model,

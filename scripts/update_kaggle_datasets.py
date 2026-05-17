@@ -138,25 +138,20 @@ def update_dataset_version(dataset_dir, stage, username, version_notes=None):
     os.chdir(dataset_dir)
 
     try:
-        print("[INFO] Uploading new version...")
-        result = subprocess.run(
+        print("[INFO] Uploading new version (this may take a while)...")
+        subprocess.run(
             ["kaggle", "datasets", "version", "-p", ".", "-m", version_notes, "--dir-mode", "zip"],
-            capture_output=True,
-            text=True
+            text=True,
+            check=True
         )
 
-        print(result.stdout)
-        if result.stderr:
-            print(result.stderr)
+        print(f"[OK] Successfully updated Stage {stage} dataset!")
+        print(f"[INFO] URL: https://www.kaggle.com/datasets/{dataset_slug}")
+        return True
 
-        if result.returncode == 0:
-            print(f"[OK] Successfully updated Stage {stage} dataset!")
-            print(f"[INFO] URL: https://www.kaggle.com/datasets/{dataset_slug}")
-            return True
-        else:
-            print(f"[ERROR] Upload failed with return code {result.returncode}")
-            return False
-
+    except subprocess.CalledProcessError as e:
+        print(f"[ERROR] Upload failed: {e}")
+        return False
     except FileNotFoundError:
         print("[ERROR] Kaggle CLI not found. Install with: pip install kaggle")
         return False
@@ -174,23 +169,18 @@ def create_new_dataset(dataset_dir, stage):
     os.chdir(dataset_dir)
 
     try:
-        result = subprocess.run(
+        subprocess.run(
             ["kaggle", "datasets", "create", "-p", ".", "--dir-mode", "zip"],
-            capture_output=True,
-            text=True
+            text=True,
+            check=True
         )
 
-        print(result.stdout)
-        if result.stderr:
-            print(result.stderr)
+        print(f"[OK] Successfully created Stage {stage} dataset!")
+        return True
 
-        if result.returncode == 0:
-            print(f"[OK] Successfully created Stage {stage} dataset!")
-            return True
-        else:
-            print(f"[ERROR] Creation failed with return code {result.returncode}")
-            return False
-
+    except subprocess.CalledProcessError as e:
+        print(f"[ERROR] Creation failed: {e}")
+        return False
     except Exception as e:
         print(f"[ERROR] Creation failed: {e}")
         return False

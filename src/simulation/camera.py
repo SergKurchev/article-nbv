@@ -29,6 +29,7 @@ class Camera:
 
         self.cam_position = None
         self.cam_rotation = None
+        self.last_eye_pos = np.array(config.CAMERA_POS)
         
     def get_image(self, cam_pos=None, cam_orn=None):
         if cam_pos is not None and cam_orn is not None:
@@ -50,19 +51,20 @@ class Camera:
                 physicsClientId=self.client_id
             )
 
+        # Use TINY_RENDERER for more reliable headless rendering in DIRECT mode
         w, h, rgb, depth, seg = p.getCameraImage(
             width=self.width,
             height=self.height,
             viewMatrix=self.view_matrix,
             projectionMatrix=self.projection_matrix,
-            renderer=p.ER_BULLET_HARDWARE_OPENGL,
-            lightDirection=[0, 0, -1],
+            renderer=p.ER_TINY_RENDERER,
+            lightDirection=[1, 1, 1],
             lightColor=[1, 1, 1],
             lightDistance=100,
             shadow=0,
-            lightAmbientCoeff=0.8,   # High ambient = preserve texture colors
-            lightDiffuseCoeff=0.2,   # Low diffuse = reduce directional darkening
-            lightSpecularCoeff=0.0,  # No specular
+            lightAmbientCoeff=0.7,
+            lightDiffuseCoeff=0.3,
+            lightSpecularCoeff=0.1,
             physicsClientId=self.client_id
         )
 
@@ -76,8 +78,20 @@ class Camera:
 
         # Segmentation mask
         seg_img = np.reshape(seg, (h, w)).astype(np.int32)
+        
+        # Store last used eye position (from computeViewMatrix)
+        if cam_pos is not None and cam_orn is not None:
+             rot_matrix = np.array(p.getMatrixFromQuaternion(cam_orn)).reshape(3, 3)
+             forward = rot_matrix[:, 2]
+             self.last_eye_pos = np.array(cam_pos) + forward * 0.05
+        else:
+             self.last_eye_pos = np.array(config.CAMERA_POS)
 
         return rgb_img, depth_img, seg_img
+
+    def get_camera_position(self):
+        """Return the actual position of the camera eye used in the last capture."""
+        return self.last_eye_pos.tolist()
 
     def get_intrinsics(self):
         """Return camera intrinsics."""
@@ -98,6 +112,13 @@ class Camera:
             "fov_deg": self.fov
         }
 
+    def get_up_vector(self, cam_orn=None):
+        """Return the actual UP vector used for the current camera orientation."""
+        if cam_orn is not None:
+            rot_matrix = np.array(p.getMatrixFromQuaternion(cam_orn)).reshape(3, 3)
+            return rot_matrix[:, 0].tolist()
+        return [0.0, 0.0, 1.0]
+
     def get_rotation_quaternion(self):
         """Extract rotation quaternion from view matrix."""
         if self.cam_rotation is not None:
@@ -105,7 +126,7 @@ class Camera:
 
         # Extract rotation from view matrix (inverse of camera transform)
         vm = np.array(self.view_matrix).reshape(4, 4)
-        rot_mat = vm[:3, :3].T  # Transpose to get world-to-local
+        rot_mat = vm[:3, :3]  # No .T: reshape(4,4) on column-major list is already transposed (CamToWorld)
 
         # Convert rotation matrix to quaternion
         trace = np.trace(rot_mat)

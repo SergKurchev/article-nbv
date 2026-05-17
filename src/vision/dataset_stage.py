@@ -28,7 +28,7 @@ from src.simulation.asset_loader import AssetLoader
 from src.simulation.robot import Robot
 
 
-def generate_stage_dataset(num_samples_per_class=None, views_per_sample=None):
+def generate_stage_dataset(num_samples_per_class=None, views_per_sample=None, use_gui=False):
     """Generate dataset using stage-aware scene generation.
 
     Uses AssetLoader.generate_scene() which properly handles:
@@ -39,13 +39,17 @@ def generate_stage_dataset(num_samples_per_class=None, views_per_sample=None):
     Args:
         num_samples_per_class: Number of samples per class
         views_per_sample: Number of camera views per sample
+        use_gui: Whether to use PyBullet GUI
     """
     if num_samples_per_class is None:
         num_samples_per_class = config.DATASET_SAMPLES_PER_CLASS
     if views_per_sample is None:
         views_per_sample = config.DATASET_VIEWS_PER_SAMPLE
 
-    client_id = p.connect(p.DIRECT)
+    if use_gui:
+        client_id = p.connect(p.GUI)
+    else:
+        client_id = p.connect(p.DIRECT)
 
     # Setup scene
     p.setAdditionalSearchPath(config.get_short_path(pybullet_data.getDataPath()), physicsClientId=client_id)
@@ -81,6 +85,12 @@ def generate_stage_dataset(num_samples_per_class=None, views_per_sample=None):
             if len(objects_with_classes) == 0:
                 print(f"Warning: No objects generated for sample {sample_counter}")
                 continue
+                
+            sample_attempts = getattr(generate_stage_dataset, 'sample_attempts', 0)
+            generate_stage_dataset.sample_attempts = sample_attempts + 1
+            if generate_stage_dataset.sample_attempts > 1000:
+                print(f"Error: Stuck in infinite loop generating sample {sample_counter}. Aborting class.")
+                break
 
             # For Stage 1, we want to generate samples for each class
             # So we regenerate until we get the desired class
@@ -159,49 +169,111 @@ def generate_stage_dataset(num_samples_per_class=None, views_per_sample=None):
                 all_positions.append(pos)
 
             for view_idx in range(views_per_sample):
-                # Try to find valid camera position (max 50 attempts)
-                cam_eye = None
-                for attempt in range(50):
-                    # Random position in manipulator workspace
-                    cam_x = random.uniform(0.2, 0.8)
-                    cam_y = random.uniform(-0.5, 0.5)
-                    cam_z = random.uniform(0.2, 0.8)
+                valid_pose = False
+                actual_pos = None
+                actual_orn = None
+                cam_target = None
+                
+                # Try to find valid camera position and orientation (max 200 attempts)
+                for attempt in range(200):
+                    # 1. Sample a target point from object generation space
+                    target_x = random.uniform(config.SCENE_BOUNDS_X_MIN, config.SCENE_BOUNDS_X_MAX)
+                    target_y = random.uniform(config.SCENE_BOUNDS_Y_MIN, config.SCENE_BOUNDS_Y_MAX)
+                    target_z = random.uniform(config.SCENE_BOUNDS_Z_MIN, config.SCENE_BOUNDS_Z_MAX)
+                    cam_target = [target_x, target_y, target_z]
+
+                    # 2. Sample cam_eye within manipulator reach (radius 0.8) and above floor
+                    cam_x = random.uniform(-0.8, 0.8)
+                    cam_y = random.uniform(-0.8, 0.8)
+                    cam_z = random.uniform(0.05, 0.8)
                     candidate_pos = [cam_x, cam_y, cam_z]
 
-                    # Check collision with objects and obstacles (min distance 0.1m)
-                    collision = False
+                    if np.linalg.norm(candidate_pos) > 0.8:
+                        continue # Outside physical reach of robot
+
+                    # Basic check to avoid spawning exactly inside objects
+                    too_close = False
                     for obj_pos in all_positions:
-                        distance = np.linalg.norm(np.array(candidate_pos) - np.array(obj_pos))
-                        if distance < 0.1:
+                        if np.linalg.norm(np.array(candidate_pos) - np.array(obj_pos)) < 0.1:
+                            too_close = True
+                            break
+                    if too_close:
+                        continue
+
+                    # Compute direction to target
+                    diff = np.array(cam_target) - np.array(candidate_pos)
+                    norm = np.linalg.norm(diff)
+                    if norm < 0.1:
+                        continue
+                        
+                    # Calculate pitch and yaw to look at target
+                    import math
+                    yaw = math.atan2(diff[1], diff[0])
+                    pitch = math.asin(np.clip(diff[2] / norm, -1.0, 1.0))
+                    
+                    # To align Kuka's +Z axis with the target direction,
+                    # and +X axis as UP vector:
+                    # Apply the correct pitch rotation (pi/2 - pitch)
+                    cam_orn = p.getQuaternionFromEuler([0, math.pi/2 - pitch, yaw])
+
+                    # Apply action to move robot
+                    robot.apply_action(candidate_pos, cam_orn)
+                    p.stepSimulation(physicsClientId=client_id)
+
+                    # 3. Check for collisions of the robot
+                    collision = False
+                    # Check collision with obstacles
+                    for obs_id in loader.obstacles:
+                        pts = p.getClosestPoints(bodyA=robot.robot_id, bodyB=obs_id, distance=0.01, physicsClientId=client_id)
+                        if pts:
                             collision = True
                             break
-
+                            
                     if not collision:
-                        cam_eye = candidate_pos
-                        break
+                        # Check collision with objects
+                        for obj_id, _ in objects_with_classes:
+                            pts = p.getClosestPoints(bodyA=robot.robot_id, bodyB=obj_id, distance=0.01, physicsClientId=client_id)
+                            if pts:
+                                collision = True
+                                break
+                                
+                    if not collision:
+                        # Check collision with floor
+                        pts = p.getClosestPoints(bodyA=robot.robot_id, bodyB=plane_id, distance=0.01, physicsClientId=client_id)
+                        for pt in pts:
+                            if pt[3] > 2: # Ignore base links which might touch the floor naturally
+                                collision = True
+                                break
 
-                if cam_eye is None:
-                    # Could not find valid camera position, skip this view
+                    if collision:
+                        continue
+
+                    # 4. Check reachability (did IK actually reach the candidate pos?)
+                    actual_pos, actual_orn = robot.get_ee_pose()
+                    if np.linalg.norm(np.array(actual_pos) - np.array(candidate_pos)) > 0.1:
+                        continue # Unreachable
+
+                    # 5. Capture image and check visibility
+                    rgb, depth, seg = camera.get_image(cam_pos=actual_pos, cam_orn=actual_orn)
+                    
+                    # Check if any target object is actually visible (at least N pixels)
+                    target_visible = False
+                    for obj_id_check, _ in objects_with_classes:
+                        if np.sum(seg == obj_id_check) >= config.DATASET_MIN_OBJECT_PIXELS:
+                            target_visible = True
+                            break
+                    
+                    if not target_visible:
+                        continue # Try another pose for this view_idx
+
+                    valid_pose = True
+                    break
+
+                if not valid_pose:
+                    # Could not find valid collision-free reachable camera position WITH target visible
                     continue
 
-                # Random target point in object generation space
-                target_x = random.uniform(config.SCENE_BOUNDS_X_MIN, config.SCENE_BOUNDS_X_MAX)
-                target_y = random.uniform(config.SCENE_BOUNDS_Y_MIN, config.SCENE_BOUNDS_Y_MAX)
-                target_z = random.uniform(config.SCENE_BOUNDS_Z_MIN, config.SCENE_BOUNDS_Z_MAX)
-                cam_target = [target_x, target_y, target_z]
-
-                # Compute view matrix
-                camera.view_matrix = p.computeViewMatrix(
-                    cameraEyePosition=cam_eye,
-                    cameraTargetPosition=cam_target,
-                    cameraUpVector=[0, 0, 1],
-                    physicsClientId=client_id
-                )
-
-                # Capture image
-                rgb, depth, seg = camera.get_image()
-
-                # Save RGB
+                # Save RGB and data since we now have a valid visible pose
                 Image.fromarray(rgb).save(sample_dir / "rgb" / f"{view_idx:05d}.png")
 
                 # Save depth
@@ -254,14 +326,20 @@ def generate_stage_dataset(num_samples_per_class=None, views_per_sample=None):
 
                 # Store camera data
                 rotation = camera.get_rotation_quaternion()
+                actual_up = camera.get_up_vector(cam_orn=actual_orn)
+                cam_actual_pos = camera.get_camera_position()
+                
+                 # Use actual_pos for robot pose, but cam_actual_pos for the camera
                 cameras_data[f"{view_idx:05d}"] = {
-                    "position": cam_eye,
-                    "target": cam_target,
-                    "up": [0, 0, 1],
-                    "rotation": rotation,
-                    "intrinsics": intrinsics
+                    "position": [float(x) for x in cam_actual_pos],
+                    "target": [float(x) for x in cam_target],
+                    "up": [float(x) for x in actual_up],
+                    "rotation": [float(x) for x in rotation],
+                    "intrinsics": intrinsics,
+                    "joint_states": [float(x) for x in robot.get_joint_states()],
+                    "ee_position": [float(x) for x in actual_pos],
+                    "ee_quaternion": [float(x) for x in actual_orn]
                 }
-
                 valid_views += 1
 
             # Only save sample if we got enough valid views
@@ -274,6 +352,7 @@ def generate_stage_dataset(num_samples_per_class=None, views_per_sample=None):
 
                 sample_counter += 1
                 i += 1
+                generate_stage_dataset.sample_attempts = 0
                 pbar.update(1)
             else:
                 # Remove incomplete sample
@@ -286,4 +365,8 @@ def generate_stage_dataset(num_samples_per_class=None, views_per_sample=None):
 
 
 if __name__ == "__main__":
-    generate_stage_dataset()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--gui", action="store_true")
+    args = parser.parse_args()
+    generate_stage_dataset(use_gui=args.gui)

@@ -6,5 +6,5 @@ See dataset-metadata.json for full description.
 
 - Stage: 2
 - Scene type: Multi-object
-- Total samples: 8
+- Total samples: 800
 - Object classes: 8
