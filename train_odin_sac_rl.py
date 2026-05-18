@@ -240,7 +240,7 @@ class OdinSACAgent:
         # Observation vector для replay buffer
         obs_vec = obs["vector"].copy()
 
-        return action_np, log_prob, obs_vec, result["delta_p_hidden"]
+        return action_np, log_prob, obs_vec, result["delta_p_hidden"], result["p_hidden"]
 
     def get_action_from_obs_vec(self, obs_vec_batch):
         """
@@ -447,7 +447,7 @@ def main():
 
         for step in range(config.MAX_STEPS_PER_EPISODE):
             # Action from NBV Head
-            action_np, log_prob, obs_vec, delta_p = agent.get_action(
+            action_np, log_prob, obs_vec, delta_p, p_hidden = agent.get_action(
                 obs, adapter, deterministic=False,
             )
 
@@ -459,7 +459,15 @@ def main():
                 if frame is not None:
                     video_frames.append(frame)
 
+            # Базовая награда за снижение неопределенности
             reward = float(delta_p) * config.REWARD_SCALE
+
+            # Дополнительная награда за то, что Coverage Head считает, что спрятанных предметов больше нет
+            if p_hidden < 0.05:
+                reward += 10.0  # Существенный бонус за полное исследование сцены
+            else:
+                reward += (1.0 - p_hidden) * 2.0  # Постоянный стимул стремиться к меньшему p_hidden
+
             done = terminated or truncated
             next_obs_vec = next_obs["vector"].copy()
 

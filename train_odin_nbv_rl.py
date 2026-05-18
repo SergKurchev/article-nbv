@@ -295,6 +295,7 @@ def main():
             nbv_pos_t = result["nbv_pos_t"]    # (3,) tensor с grad
             nbv_quat_t = result["nbv_quat_t"]  # (4,) tensor с grad
             delta_p = result["delta_p_hidden"]
+            p_hidden = result["p_hidden"]
 
             # 4. Конвертируем кватернион → эйлер (дифференцируемо)
             euler_t = quat_to_euler_torch(nbv_quat_t)  # (3,)
@@ -323,6 +324,13 @@ def main():
 
             # 8. Reward = delta_p_hidden (Coverage Head, frozen)
             reward = delta_p * config.REWARD_SCALE
+
+            # Дополнительная награда за то, что Coverage Head считает, что спрятанных предметов больше нет
+            if p_hidden < 0.05:
+                reward += 10.0  # Существенный бонус за полное исследование сцены
+            else:
+                reward += (1.0 - p_hidden) * 2.0  # Постоянный стимул стремиться к меньшему p_hidden
+
             rewards.append(reward)
             delta_ps.append(delta_p)
 
