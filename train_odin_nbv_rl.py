@@ -133,6 +133,8 @@ def parse_args():
     p.add_argument("--no_arm", action="store_true")
     p.add_argument("--max_steps", type=int, default=10,
                     help="Шагов в эпизоде (default: config.MAX_STEPS_PER_EPISODE)")
+    p.add_argument("--record_episodes", nargs="+", type=int, default=[],
+                    help="Список эпизодов для записи видео (например: 10 50 100)")
 
     # Вывод
     p.add_argument("--output_dir", type=str, default="./output_nbv_rl")
@@ -210,12 +212,13 @@ def main():
 
     # Среда создаётся БЕЗ адаптера — ODIN вызывается снаружи
     env = NBVODINEnv(
-        render_mode=None,
+        render_mode="rgb_array" if args.record_episodes else None,
         headless=True,
         no_arm=args.no_arm,
-        odin_adapter=None,       # ODIN вызывается снаружи в цикле
+        odin_adapter=adapter,    # ODIN вызывается снаружи в цикле
         use_nbv_hint=False,
         log_dir=str(output_dir / "logs"),
+        external_infer=True,
     )
     print(f"[INFO] Environment ready (stage={args.scene_stage})")
 
@@ -248,6 +251,13 @@ def main():
         log_probs = []
         rewards = []
         delta_ps = []
+
+        record_video = episode in args.record_episodes
+        video_frames = []
+        if record_video and env.render_mode == "rgb_array":
+            frame = env.render()
+            if frame is not None:
+                video_frames.append(frame)
 
         for step in range(config.MAX_STEPS_PER_EPISODE):
             # 1. Извлекаем сырые данные из среды
@@ -306,6 +316,11 @@ def main():
 
             obs, _env_reward, terminated, truncated, info = env.step(action_np)
 
+            if record_video and env.render_mode == "rgb_array":
+                frame = env.render()
+                if frame is not None:
+                    video_frames.append(frame)
+
             # 8. Reward = delta_p_hidden (Coverage Head, frozen)
             reward = delta_p * config.REWARD_SCALE
             rewards.append(reward)
@@ -355,6 +370,14 @@ def main():
         # --- Логирование ---
         mean_dp = np.mean(delta_ps) if delta_ps else 0.0
         final_p = adapter.last_p_hidden
+
+        if record_video and video_frames:
+            video_dir = output_dir / "videos"
+            video_dir.mkdir(parents=True, exist_ok=True)
+            video_path = video_dir / f"episode_{episode}.gif"
+            import imageio
+            imageio.mimsave(str(video_path), video_frames, fps=15)
+            print(f"[INFO] Video saved: {video_path}")
 
         csv_writer.writerow([
             episode, f"{ep_reward:.4f}", f"{mean_dp:.4f}", f"{final_p:.4f}",

@@ -70,7 +70,8 @@ class NBVODINEnv(gym.Env):
         no_arm=False,
         odin_adapter: "ODINAdapter | None" = None,
         use_nbv_hint: bool = True,
-        log_dir: str = "eval_logs"
+        log_dir: str = "eval_logs",
+        external_infer: bool = False,
     ):
         super().__init__()
         self.render_mode = render_mode
@@ -79,6 +80,7 @@ class NBVODINEnv(gym.Env):
         self.odin_adapter = odin_adapter
         self.use_nbv_hint = use_nbv_hint
         self.log_dir = Path(log_dir)
+        self.external_infer = external_infer
 
         # Подключаем PyBullet
         connection_mode = p.DIRECT if headless else p.GUI
@@ -494,23 +496,33 @@ class NBVODINEnv(gym.Env):
         nbv_hint = np.zeros(3, dtype=np.float32)
 
         if self.odin_adapter is not None:
-            # Интринзика камеры из PyBullet
-            fx = fy = config.IMAGE_SIZE / 2  # Приближённые значения
-            cx = cy = config.IMAGE_SIZE / 2
-            # Поза камеры (camera-to-world)
-            pose_c2w = self._get_camera_pose(pos, orn)
+            if not getattr(self, "external_infer", False):
+                # Интринзика камеры из PyBullet
+                fx = fy = config.IMAGE_SIZE / 2  # Приближённые значения
+                cx = cy = config.IMAGE_SIZE / 2
+                # Поза камеры (camera-to-world)
+                pose_c2w = self._get_camera_pose(pos, orn)
 
-            self.odin_adapter.add_frame(rgb, depth.astype(np.float32), pose_c2w, fx, fy, cx, cy)
+                self.odin_adapter.add_frame(rgb, depth.astype(np.float32), pose_c2w, fx, fy, cx, cy)
 
-            result = self.odin_adapter.infer(
-                current_pos=np.array(pos, dtype=np.float32),
-                current_quat=np.array(orn, dtype=np.float32),
-            )
-            delta_p_hidden = float(result["delta_p_hidden"])
-            self.last_p_hidden = float(result["p_hidden"])
+                result = self.odin_adapter.infer(
+                    current_pos=np.array(pos, dtype=np.float32),
+                    current_quat=np.array(orn, dtype=np.float32),
+                )
+                delta_p_hidden = float(result["delta_p_hidden"])
+                self.last_p_hidden = float(result["p_hidden"])
 
-            if self.use_nbv_hint and result["nbv_pos"] is not None:
-                nbv_hint = np.array(result["nbv_pos"], dtype=np.float32)[:3]
+                if self.use_nbv_hint and result["nbv_pos"] is not None:
+                    nbv_hint = np.array(result["nbv_pos"], dtype=np.float32)[:3]
+            else:
+                # Внешний инференс (SAC / REINFORCE):
+                # Адаптер управляется внешним циклом обучения.
+                # Мы просто считываем актуальный p_hidden из адаптера и вычисляем delta_p_hidden!
+                new_p = float(self.odin_adapter.last_p_hidden)
+                delta_p_hidden = float(self.last_p_hidden - new_p)
+                self.last_p_hidden = new_p
+                if self.use_nbv_hint and getattr(self.odin_adapter, "last_nbv_pos", None) is not None:
+                    nbv_hint = np.array(self.odin_adapter.last_nbv_pos, dtype=np.float32)[:3]
 
         # Дополнительно считаем найденные объекты (на основе маски)
         self._update_object_counts(seg)

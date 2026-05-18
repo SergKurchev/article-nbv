@@ -344,6 +344,8 @@ def parse_args():
     p.add_argument("--scene_stage", type=int, default=2, choices=[1, 2, 3])
     p.add_argument("--no_arm", action="store_true")
     p.add_argument("--max_steps", type=int, default=10)
+    p.add_argument("--record_episodes", nargs="+", type=int, default=[],
+                    help="Список эпизодов для записи видео (например: 10 50 100)")
 
     p.add_argument("--output_dir", type=str, default="./output_odin_sac")
     p.add_argument("--save_freq", type=int, default=5000)
@@ -389,9 +391,11 @@ def main():
     from src.simulation.environment_odin import NBVODINEnv
 
     env = NBVODINEnv(
+        render_mode="rgb_array" if args.record_episodes else None,
         headless=True, no_arm=args.no_arm,
-        odin_adapter=None, use_nbv_hint=False,
+        odin_adapter=adapter, use_nbv_hint=False,
         log_dir=str(output_dir / "logs"),
+        external_infer=True,
     )
 
     obs_dim = env.observation_space["vector"].shape[0]  # 18
@@ -434,6 +438,13 @@ def main():
         ep_steps = 0
         c_loss = a_loss = 0.0
 
+        record_video = (episode + 1) in args.record_episodes
+        video_frames = []
+        if record_video and env.render_mode == "rgb_array":
+            frame = env.render()
+            if frame is not None:
+                video_frames.append(frame)
+
         for step in range(config.MAX_STEPS_PER_EPISODE):
             # Action from NBV Head
             action_np, log_prob, obs_vec, delta_p = agent.get_action(
@@ -442,6 +453,11 @@ def main():
 
             next_obs, _env_rew, terminated, truncated, info = env.step(action_np)
             next_obs["_raw_rgb"] = env.last_rgb
+
+            if record_video and env.render_mode == "rgb_array":
+                frame = env.render()
+                if frame is not None:
+                    video_frames.append(frame)
 
             reward = float(delta_p) * config.REWARD_SCALE
             done = terminated or truncated
@@ -467,6 +483,14 @@ def main():
 
         episode += 1
         reward_history.append(ep_reward)
+
+        if record_video and video_frames:
+            video_dir = output_dir / "videos"
+            video_dir.mkdir(parents=True, exist_ok=True)
+            video_path = video_dir / f"episode_{episode}.gif"
+            import imageio
+            imageio.mimsave(str(video_path), video_frames, fps=15)
+            print(f"[INFO] Video saved: {video_path}")
 
         csv_w.writerow([total_step, episode, f"{ep_reward:.4f}", ep_steps,
                         f"{adapter.last_p_hidden:.4f}", f"{c_loss:.4f}",
