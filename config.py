@@ -85,7 +85,7 @@ SCENE_MIN_OBJECT_DISTANCE = 0.15  # Reduced from 0.25 to allow more objects
 SCENE_MAX_PLACEMENT_ATTEMPTS = 100  # Maximum attempts to place object without collision - increased
 
 # Object and obstacle scaling
-OBJECT_SCALE_FACTOR = 1.0  # Scale factor for object size (1.0 = default size)
+OBJECT_SCALE_FACTOR = 0.5  # Scale factor for object size (1.0 = default size)
 OBSTACLE_SCALE_FACTOR = 1.5  # Scale factor for obstacle size (1.0 = default size)
 
 # Episode limits
