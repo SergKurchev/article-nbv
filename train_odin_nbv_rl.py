@@ -106,9 +106,10 @@ def parse_args():
                     help="Path to ODIN YAML config")
     p.add_argument("--num_classes", type=int, default=24)
 
-    # Заморозка
     p.add_argument("--freeze_backbone", action="store_true",
                     help="Freeze ODIN backbone + Coverage Head. Train ONLY NBV Head.")
+    p.add_argument("--train_last_transformer_block", action="store_true",
+                    help="Train the last transformer decoder block of ODIN backbone")
 
     # RL гиперпараметры
     p.add_argument("--total_episodes", type=int, default=500,
@@ -174,21 +175,41 @@ def main():
 
     # --- Заморозка ---
     if args.freeze_backbone:
-        frozen_count = 0
-        trainable_count = 0
+        max_layer_idx = -1
+        for name in model.state_dict().keys():
+            for layer_name in ["transformer_self_attention_layers", "transformer_cross_attention_layers", "transformer_ffn_layers"]:
+                if layer_name in name:
+                    parts = name.split(layer_name + ".")
+                    if len(parts) > 1:
+                        idx_str = parts[1].split(".")[0]
+                        if idx_str.isdigit():
+                            max_layer_idx = max(max_layer_idx, int(idx_str))
+
         for name, param in model.named_parameters():
-            if "nbv_head" in name or "coverage_head" in name:
-                param.requires_grad_(True)
-                trainable_count += 1
-            else:
-                # Замораживаем backbone, pixel decoder
-                param.requires_grad_(False)
-                frozen_count += 1
+            # Базовое условие
+            is_trainable = "nbv_head" in name or "coverage_head" in name
+            # Если включен флаг, обучаем последний блок трансформера
+            if args.train_last_transformer_block and max_layer_idx >= 0:
+                is_last_block = any(
+                    f"{layer_name}.{max_layer_idx}." in name
+                    for layer_name in [
+                        "transformer_self_attention_layers",
+                        "transformer_cross_attention_layers",
+                        "transformer_text_cross_attention_layers",
+                        "transformer_ffn_layers"
+                    ]
+                )
+                if is_last_block:
+                    is_trainable = True
+            param.requires_grad_(is_trainable)
+
         trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         total_params = sum(p.numel() for p in model.parameters())
-        print(f"[INFO] --freeze_backbone: frozen {frozen_count} param groups, "
-              f"trainable {trainable_count} (NBV Head + Coverage Head).")
-        print(f"[INFO] Trainable params: {trainable_params:,} / {total_params:,}")
+        msg = f"[INFO] --freeze_backbone: trainable {trainable_params:,} / {total_params:,} params (NBV Head + Coverage Head"
+        if args.train_last_transformer_block:
+            msg += f" + Last Transformer Block {max_layer_idx}"
+        msg += ")"
+        print(msg)
     else:
         # End-to-end: всё размораживается
         for param in model.parameters():
@@ -202,7 +223,7 @@ def main():
     # --- Оптимизатор (только для NBV Head / Policy) ---
     trainable = [
         p for n, p in model.named_parameters()
-        if p.requires_grad and "nbv_head" in n
+        if p.requires_grad and "coverage_head" not in n
     ]
     optimizer = torch.optim.Adam(trainable, lr=args.lr)
     print(f"[INFO] Optimizer (Policy): Adam, lr={args.lr}, params={len(trainable)}")

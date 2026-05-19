@@ -137,32 +137,36 @@ PyBullet Simulator
 
 **Нет отдельного SAC-агента.** Вся политика живёт внутри ODIN.
 
-### Два режима заморозки
+### Три режима заморозки
 
-| Флаг | Что обучается | Что заморожено | GPU память | Скорость |
+| Флаги | Что обучается | Что заморожено | GPU память | Скорость |
 |------|---------------|----------------|------------|----------|
-| `--freeze_backbone` | Только NBV Head | Backbone + Coverage Head | ~4 GB | Быстро |
+| `--freeze_backbone` | Только NBV Head | Backbone + Coverage Head | ~4 GB | Максимальная |
+| `--freeze_backbone --train_last_transformer_block` | NBV Head + последний блок трансформера в декодере | Остальной Backbone + Coverage Head | ~6 GB | Высокая |
 | *(без флага)* | Вся сеть end-to-end | Ничего | ~12+ GB | Медленно |
 
 - **`--freeze_backbone` (рекомендуется):** Backbone ODIN и Coverage Head
-  заморожены. Градиенты REINFORCE обновляют **только** NBV Head.
+  заморожены. Градиенты обновляют **только** NBV Head.
   Coverage Head даёт стабильный сигнал награды (p_hidden не "плывёт").
+
+- **`--train_last_transformer_block`:** Включает обучение последнего transformer-декодер слоя бэкбона ODIN вместе с NBV Head. Это даёт гибкость адаптации внимания бэкбона под RL-задачу без больших затрат по памяти.
 
 - **Без флага (end-to-end):** Градиенты текут через весь backbone.
   Backbone адаптирует свои фичи под задачу NBV. Требует больше GPU
   и может быть нестабильным — используйте малый lr и grad_clip.
 
-### Параметры CLI
+### Параметры CLI (REINFORCE)
 
 ```
---odin_weights PATH      Путь к .pth весам NBVActiveODIN
---odin_cfg PATH          Путь к YAML конфигу ODIN
---freeze_backbone        Заморозить backbone + Coverage Head
---total_episodes N       Число эпизодов (default: 500)
---lr FLOAT               Learning rate (default: 1e-4)
---exploration_std FLOAT  Начальный шум Gaussian (default: 0.1)
---std_decay FLOAT        Decay шума за эпизод (default: 0.999)
---std_min FLOAT          Минимальный шум (default: 0.01)
+--odin_weights PATH               Путь к .pth весам NBVActiveODIN
+--odin_cfg PATH                   Путь к YAML конфигу ODIN
+--freeze_backbone                 Заморозить backbone + Coverage Head
+--train_last_transformer_block    Обучать последний декодер-блок трансформера бэкбона
+--total_episodes N                Число эпизодов (default: 500)
+--lr FLOAT                        Learning rate (default: 1e-4)
+--exploration_std FLOAT           Начальный шум Gaussian (default: 0.1)
+--std_decay FLOAT                 Decay шума за эпизод (default: 0.999)
+--std_min FLOAT                   Минимальный шум (default: 0.01)
 --gamma FLOAT            Discount factor (default: 0.99)
 --grad_clip FLOAT        Max gradient norm (default: 1.0)
 --scene_stage {1,2,3}    Стадия сцены (default: 2)
@@ -197,20 +201,21 @@ output_nbv_rl/
 ### SAC: параметры CLI
 
 ```
---odin_weights PATH      Путь к .pth весам NBVActiveODIN
---odin_cfg PATH          Путь к YAML конфигу ODIN
---freeze_backbone        Заморозить backbone + Coverage Head
---total_steps N          Общее число шагов (default: 100000)
---lr_actor FLOAT         LR актора/NBV Head (default: 1e-4)
---lr_critic FLOAT        LR Q-networks (default: 3e-4)
---tau FLOAT              Soft update коэффициент (default: 0.005)
---buffer_size N          Размер replay buffer (default: 50000)
---batch_size N           Batch для SAC updates (default: 256)
---learning_starts N      Шагов до начала обучения (default: 1000)
---gamma FLOAT            Discount factor (default: 0.99)
---grad_clip FLOAT        Max gradient norm (default: 1.0)
---scene_stage {1,2,3}    Стадия сцены (default: 2)
---output_dir PATH        Папка для результатов
+--odin_weights PATH               Путь к .pth весам NBVActiveODIN
+--odin_cfg PATH                   Путь к YAML конфигу ODIN
+--freeze_backbone                 Заморозить backbone + Coverage Head
+--train_last_transformer_block    Обучать последний декодер-блок трансформера бэкбона
+--total_steps N                   Общее число шагов (default: 100000)
+--lr_actor FLOAT                  LR актора/NBV Head (default: 1e-4)
+--lr_critic FLOAT                 LR Q-networks (default: 3e-4)
+--tau FLOAT                       Soft update коэффициент (default: 0.005)
+--buffer_size N                   Размер replay buffer (default: 50000)
+--batch_size N                    Batch для SAC updates (default: 256)
+--learning_starts N               Шагов до начала обучения (default: 1000)
+--gamma FLOAT                     Discount factor (default: 0.99)
+--grad_clip FLOAT                 Max gradient norm (default: 1.0)
+--scene_stage {1,2,3}             Стадия сцены (default: 2)
+--output_dir PATH                 Папка для результатов
 ```
 
 ### SAC: выходные файлы

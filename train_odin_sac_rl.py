@@ -91,28 +91,98 @@ class ReplayBuffer:
 
 
 class QNetwork(nn.Module):
-    """Twin Q-network для SAC."""
+    """Smart Twin Q-network для SAC с пространственным, относительным и семантическим анализом."""
 
     def __init__(self, obs_dim: int, action_dim: int, hidden_dim: int = 256):
         super().__init__()
-        self.q1 = nn.Sequential(
-            nn.Linear(obs_dim + action_dim, hidden_dim),
+        # obs_dim = 18 (базовый obs_vec) + 256 (scene_emb) = 274
+        self.use_scene_emb = (obs_dim >= 274)
+        
+        # Проекция для scene embedding
+        if self.use_scene_emb:
+            self.scene_proj1 = nn.Sequential(
+                nn.Linear(256, 128),
+                nn.ReLU(),
+                nn.Linear(128, 64),
+                nn.ReLU()
+            )
+            self.scene_proj2 = nn.Sequential(
+                nn.Linear(256, 128),
+                nn.ReLU(),
+                nn.Linear(128, 64),
+                nn.ReLU()
+            )
+            mlp_in_dim = 64 + 14 + 6 + 1 + 7  # 92
+        else:
+            mlp_in_dim = obs_dim + action_dim
+
+        self.q1_mlp = nn.Sequential(
+            nn.Linear(mlp_in_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, 1),
+            nn.Linear(hidden_dim, 1)
         )
-        self.q2 = nn.Sequential(
-            nn.Linear(obs_dim + action_dim, hidden_dim),
+        self.q2_mlp = nn.Sequential(
+            nn.Linear(mlp_in_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, 1),
+            nn.Linear(hidden_dim, 1)
         )
 
+    def _process_inputs(self, obs, action, proj_net):
+        if not self.use_scene_emb:
+            return torch.cat([obs, action], dim=-1)
+
+        # Извлекаем компоненты из obs (размерность 274)
+        # obs_vec содержит: pos(3) + orn(4) + delta_p(1) + joints(7) + nbv_hint(3) + scene_emb(256)
+        curr_pos = obs[:, :3]
+        curr_orn_quat = obs[:, 3:7]  # не используется напрямую для геометрии
+        delta_p = obs[:, 7:8]
+        joints = obs[:, 8:15]
+        nbv_hint = obs[:, 15:18]
+        scene_emb = obs[:, 18:274]
+
+        target_pos = action[:, :3]
+        target_euler = action[:, 3:]
+
+        # Вычисляем euler из quat для относительного угла
+        curr_euler = curr_orn_quat[:, :3] * 0.1 
+
+        # Относительные геометрические фичи
+        rel_pos = target_pos - curr_pos
+        rel_euler = target_euler - curr_euler
+        dist = torch.norm(rel_pos, dim=-1, keepdim=True)
+        direction = rel_pos / (dist + 1e-6)
+
+        # Относительно подсказки NBV
+        hint_rel_pos = target_pos - nbv_hint
+        hint_dist = torch.norm(hint_rel_pos, dim=-1, keepdim=True)
+
+        geom_feats = torch.cat([
+            rel_pos, rel_euler, dist, direction, hint_rel_pos, hint_dist
+        ], dim=-1)  # size: 14
+
+        # Фичи выхода за границы (OOB)
+        oob_min = torch.tensor([0.2, -0.5, 0.05], device=action.device)
+        oob_max = torch.tensor([0.8, 0.5, 0.8], device=action.device)
+        
+        oob_low = F.relu(oob_min - target_pos)
+        oob_high = F.relu(target_pos - oob_max)
+        oob_feats = torch.cat([oob_low, oob_high], dim=-1)  # size: 6
+
+        # Проекция семантического эмбеддинга сцены
+        scene_feats = proj_net(scene_emb)  # size: 64
+
+        # Собираем всё вместе
+        x = torch.cat([scene_feats, geom_feats, oob_feats, delta_p, joints], dim=-1)
+        return x
+
     def forward(self, obs, action):
-        x = torch.cat([obs, action], dim=-1)
-        return self.q1(x), self.q2(x)
+        x1 = self._process_inputs(obs, action, self.scene_proj1)
+        x2 = self._process_inputs(obs, action, self.scene_proj2)
+        return self.q1_mlp(x1), self.q2_mlp(x2)
 
 
 class OdinSACAgent:
@@ -154,10 +224,10 @@ class OdinSACAgent:
         )
 
         # Собираем trainable параметры актора:
-        # NBV Head params + log_std
+        # Все requires_grad=True параметры, кроме Q-критиков (они отдельно) и coverage_head
         self.actor_params = [
             p for n, p in odin_model.named_parameters()
-            if p.requires_grad and "nbv_head" in n
+            if p.requires_grad and "coverage_head" not in n
         ] + [self.log_std]
 
         self.actor_optimizer = torch.optim.Adam(self.actor_params, lr=lr_actor)
@@ -239,8 +309,10 @@ class OdinSACAgent:
 
         # Observation vector для replay buffer
         obs_vec = obs["vector"].copy()
+        scene_emb = result.get("scene_embedding", np.zeros(256, dtype=np.float32))
+        obs_vec_full = np.concatenate([obs_vec, scene_emb])
 
-        return action_np, log_prob, obs_vec, result["delta_p_hidden"], result["p_hidden"], result.get("p_hidden_logit_t"), result.get("instances_3d"), result.get("original_xyz")
+        return action_np, log_prob, obs_vec_full, result["delta_p_hidden"], result["p_hidden"], result.get("p_hidden_logit_t"), result.get("instances_3d"), result.get("original_xyz")
 
     def get_action_from_obs_vec(self, obs_vec_batch):
         """
@@ -329,6 +401,8 @@ def parse_args():
 
     p.add_argument("--freeze_backbone", action="store_true",
                     help="Freeze backbone + Coverage Head. Train NBV Head + critics.")
+    p.add_argument("--train_last_transformer_block", action="store_true",
+                    help="Train the last transformer decoder block of ODIN backbone")
 
     p.add_argument("--total_steps", type=int, default=100000)
     p.add_argument("--gamma", type=float, default=0.99)
@@ -374,10 +448,40 @@ def main():
 
     # --- Freeze ---
     if args.freeze_backbone:
+        max_layer_idx = -1
+        for name in model.state_dict().keys():
+            for layer_name in ["transformer_self_attention_layers", "transformer_cross_attention_layers", "transformer_ffn_layers"]:
+                if layer_name in name:
+                    parts = name.split(layer_name + ".")
+                    if len(parts) > 1:
+                        idx_str = parts[1].split(".")[0]
+                        if idx_str.isdigit():
+                            max_layer_idx = max(max_layer_idx, int(idx_str))
+
         for name, param in model.named_parameters():
-            param.requires_grad_("nbv_head" in name or "coverage_head" in name)
+            # Базовое условие
+            is_trainable = "nbv_head" in name or "coverage_head" in name
+            # Если включен флаг, обучаем последний блок трансформера
+            if args.train_last_transformer_block and max_layer_idx >= 0:
+                is_last_block = any(
+                    f"{layer_name}.{max_layer_idx}." in name
+                    for layer_name in [
+                        "transformer_self_attention_layers",
+                        "transformer_cross_attention_layers",
+                        "transformer_text_cross_attention_layers",
+                        "transformer_ffn_layers"
+                    ]
+                )
+                if is_last_block:
+                    is_trainable = True
+            param.requires_grad_(is_trainable)
+
         tp = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        print(f"[INFO] --freeze_backbone: trainable {tp:,} params (NBV Head + Coverage Head)")
+        msg = f"[INFO] --freeze_backbone: trainable {tp:,} params (NBV Head + Coverage Head"
+        if args.train_last_transformer_block:
+            msg += f" + Last Transformer Block {max_layer_idx}"
+        msg += ")"
+        print(msg)
     else:
         for p in model.parameters():
             p.requires_grad_(True)
@@ -398,7 +502,7 @@ def main():
         external_infer=True,
     )
 
-    obs_dim = env.observation_space["vector"].shape[0]  # 18
+    obs_dim = env.observation_space["vector"].shape[0] + 256  # 18 + 256 = 274 (with scene embedding)
 
     # --- SAC Agent ---
     agent = OdinSACAgent(
@@ -475,9 +579,14 @@ def main():
             
             # Predict p_hidden for next_obs to get the CORRECT delta_p_hidden for the CURRENT action
             with torch.no_grad():
-                next_outputs = adapter.infer_for_rl(next_obs)
-                next_p_hidden_tensor = next_outputs["p_hidden"]
-                next_p_hidden = float(next_p_hidden_tensor.cpu().item())
+                next_pos = next_obs["vector"][:3]
+                next_quat = next_obs["vector"][3:7]
+                next_outputs = adapter.infer_for_rl(
+                    current_pos=next_pos.astype(np.float32),
+                    current_quat=next_quat.astype(np.float32),
+                )
+                next_p_hidden = float(next_outputs["p_hidden"])
+                next_scene_emb = next_outputs.get("scene_embedding", np.zeros(256, dtype=np.float32))
                 
             delta_p_hidden = p_hidden - next_p_hidden
             rew_coverage = delta_p_hidden * config.REWARD_SCALE
@@ -515,7 +624,7 @@ def main():
             next_obs["_raw_rgb"] = env.last_rgb
 
             done = terminated or truncated
-            next_obs_vec = next_obs["vector"].copy()
+            next_obs_vec = np.concatenate([next_obs["vector"], next_scene_emb])
 
             if record_video and env.render_mode == "rgb_array":
                 frame = env.render()

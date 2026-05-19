@@ -251,6 +251,16 @@ class ODINAdapter:
             nbv_pos = outputs["nbv_pos"].cpu().numpy().squeeze()    # (3,)
             nbv_quat = outputs["nbv_quat"].cpu().numpy().squeeze()  # (4,)
 
+        # We also compute the scene embedding
+        scene_emb = None
+        base_model = self.model.model.module if hasattr(self.model.model, "module") else self.model.model
+        last_outputs = getattr(base_model, "_last_outputs", None)
+        if last_outputs is not None and "query_features" in last_outputs:
+            q_feats = last_outputs["query_features"]  # Tensor (B, Q, D)
+            scene_emb = q_feats.mean(dim=1).detach().cpu().numpy().squeeze(0)  # (D,) array
+        else:
+            scene_emb = np.zeros(256, dtype=np.float32)
+
         self.last_p_hidden = p_hidden
         self.last_nbv_pos = nbv_pos
         self.last_nbv_quat = nbv_quat
@@ -260,6 +270,7 @@ class ODINAdapter:
             "nbv_pos": nbv_pos,
             "nbv_quat": nbv_quat,
             "delta_p_hidden": prev_p_hidden - p_hidden,  # положительное = хорошо
+            "scene_embedding": scene_emb,
         }
 
     def infer_for_rl(
@@ -339,6 +350,16 @@ class ODINAdapter:
             nbv_pos_t = outputs["nbv_pos"].squeeze()     # (3,) tensor с grad
             nbv_quat_t = outputs["nbv_quat"].squeeze()   # (4,) tensor с grad
 
+        # We also compute the scene embedding
+        scene_emb = None
+        base_model = self.model.model.module if hasattr(self.model.model, "module") else self.model.model
+        last_outputs = getattr(base_model, "_last_outputs", None)
+        if last_outputs is not None and "query_features" in last_outputs:
+            q_feats = last_outputs["query_features"]  # Tensor (B, Q, D)
+            scene_emb = q_feats.mean(dim=1).detach().cpu().numpy().squeeze(0)  # (D,) array
+        else:
+            scene_emb = np.zeros(256, dtype=np.float32)
+
         self.last_p_hidden = p_hidden
         if nbv_pos_t is not None:
             self.last_nbv_pos = nbv_pos_t.detach().cpu().numpy()
@@ -353,6 +374,7 @@ class ODINAdapter:
             "delta_p_hidden": prev_p_hidden - p_hidden,
             "instances_3d": outputs.get("instances_3d", None),
             "original_xyz": original_xyz_list[0].detach().cpu().numpy() if original_xyz_list is not None else None,
+            "scene_embedding": scene_emb,
         }
 
     def _empty_result_rl(self) -> dict:
@@ -362,6 +384,7 @@ class ODINAdapter:
             "nbv_quat_t": torch.tensor([0.0, 0.0, 0.0, 1.0], device=self.device, requires_grad=True),
             "p_hidden": self.last_p_hidden,
             "delta_p_hidden": 0.0,
+            "scene_embedding": np.zeros(256, dtype=np.float32),
         }
 
     # ------------------------------------------------------------------
@@ -458,6 +481,7 @@ class ODINAdapter:
             "nbv_pos": self.last_nbv_pos,
             "nbv_quat": self.last_nbv_quat,
             "delta_p_hidden": 0.0,
+            "scene_embedding": np.zeros(256, dtype=np.float32),
         }
 
 
