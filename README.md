@@ -58,7 +58,7 @@ The RL Agent (SAC) receives the final reward $R_{\text{total}}$ which combines $
      $$R_{\text{total}} = r_{\text{env}}$$
    * If the step was safe ($r_{\text{env}} > -5.0$):
      * If the scene is fully explored ($p_{\text{hidden}} < \text{REWARD\_EXPLORATION\_THRESHOLD}$):
-       $$R_{\text{total}} = r_{\text{env}} + \text{REWARD\_EXPLORATION\_COMPLETE\_BONUS} \quad (\text{bonus} = 10.0)$$
+       $$R_{\text{total}} = r_{\text{env}} + \text{REWARD\_EXPLORATION\_COMPLETE\_BONUS} \quad (\text{bonus} = 20.0)$$
      * If there are still hidden areas remaining ($p_{\text{hidden}} \ge 0.05$):
        $$R_{\text{total}} = r_{\text{env}} + (1.0 - p_{\text{hidden}}) \times \text{REWARD\_EXPLORATION\_PARTIAL\_FACTOR} \quad (\text{factor} = 2.0)$$
 

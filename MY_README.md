@@ -173,7 +173,7 @@ PyBullet Simulator
      $$R_{\text{total}} = r_{\text{env}}$$
    * На безопасном шаге ($r_{\text{env}} > -5.0$):
      * При полном завершении исследования ($p_{\text{hidden}} < \text{REWARD\_EXPLORATION\_THRESHOLD}$):
-       $$R_{\text{total}} = r_{\text{env}} + \text{REWARD\_EXPLORATION\_COMPLETE\_BONUS} \quad (\text{bonus} = 10.0)$$
+       $$R_{\text{total}} = r_{\text{env}} + \text{REWARD\_EXPLORATION\_COMPLETE\_BONUS} \quad (\text{bonus} = 20.0)$$
      * При частичном исследовании:
        $$R_{\text{total}} = r_{\text{env}} + (1.0 - p_{\text{hidden}}) \times \text{REWARD\_EXPLORATION\_PARTIAL\_FACTOR} \quad (\text{factor} = 2.0)$$
 

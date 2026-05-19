@@ -151,7 +151,7 @@ REWARD_EXPLORATION_THRESHOLD = 0.05
 
 # REWARD_EXPLORATION_COMPLETE_BONUS: Крупный бонус за полное исследование сцены (когда p_hidden < REWARD_EXPLORATION_THRESHOLD).
 # Выдается только на безопасных шагах (без столкновений и OOB).
-REWARD_EXPLORATION_COMPLETE_BONUS = 10.0
+REWARD_EXPLORATION_COMPLETE_BONUS = 20.0
 
 # REWARD_EXPLORATION_PARTIAL_FACTOR: Множитель для промежуточной награды за исследование.
 # Если сцена исследована не полностью, агент получает промежуточный бонус: (1.0 - p_hidden) * REWARD_EXPLORATION_PARTIAL_FACTOR.
