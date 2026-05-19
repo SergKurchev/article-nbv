@@ -137,6 +137,46 @@ PyBullet Simulator
 
 **Нет отдельного SAC-агента.** Вся политика живёт внутри ODIN.
 
+### 🏆 Функция награды (Reward Shaping)
+
+Функция награды полностью параметризована в `config.py` и состоит из двух основных частей: **базовой награды среды** ($r_{\text{env}}$) и **модификаторов покрытия и исследования** ($R_{\text{total}}$).
+
+#### 1. Базовая награда среды ($r_{\text{env}}$)
+Отвечает за безопасность движения и качество распознавания на каждом шаге:
+* **Столкновение (Collision):** Штраф за коллизию манипулятора с препятствием или объектом:
+  $$r_{\text{env}} = \text{PENALTY\_COLLISION} = -15.0$$
+* **Выход за границы рабочей зоны (OOB):** Штраф за выход камеры за разрешенные геометрические рамки:
+  $$r_{\text{env}} = \text{PENALTY\_OOB} = -10.0$$
+* **Штатный шаг (без аварий):** Суммирует качество работы классификатора и бонусы выполнения:
+  $$r_{\text{env}} = r_{\text{classifier}} + r_{\text{all\_found}} + r_{\text{success\_classified}} + r_{\text{survival}}$$
+  
+  Где:
+  1. **Рост уверенности классификатора ($r_{\text{classifier}}$):** Поощряет выбор ракурсов, увеличивающих среднюю уверенность предсказания классов:
+     $$r_{\text{classifier}} = \text{REWARD\_CLASSIFIER\_SCALE} \times (C_t - C_{t-1}) \quad (\text{scale} = 30.0)$$
+  2. **Бонус обнаружения ($r_{\text{all\_found}}$):** Выдается один раз за эпизод при обнаружении всех целевых объектов:
+     $$r_{\text{all\_found}} = \text{REWARD\_ALL\_FOUND\_BONUS} = 50.0$$
+  3. **Бонус успешной классификации ($r_{\text{success\_classified}}$):** Начисляется при правильном распознавании всех объектов. Успешно завершает эпизод:
+     $$r_{\text{success\_classified}} = \text{REWARD\_SUCCESS\_CLASSIFIED\_BONUS} = 100.0$$
+  4. **Награда за выживание ($r_{\text{survival}}$):** Небольшой стимул двигаться безопасно:
+     $$r_{\text{survival}} = \text{REWARD\_SURVIVAL} = 1.0$$
+
+---
+
+#### 2. Итоговая награда для обучения SAC ($R_{\text{total}}$)
+Комбинирует базовую награду со значением вероятности скрытых зон ($p_{\text{hidden}}$), предсказываемым Coverage Head в ODIN:
+
+1. **Разница покрытия ($\Delta p_{\text{hidden}}$):**
+   $$\Delta p_{\text{hidden}} = p_{\text{hidden}}^{t} - p_{\text{hidden}}^{t+1}$$
+   $$r_{\text{coverage}} = \Delta p_{\text{hidden}} \times \text{REWARD\_SCALE} \quad (\text{scale} = 20.0)$$
+2. **Корректировка итогового шага:**
+   * При столкновении или OOB ($r_{\text{env}} \le \max(\text{PENALTY\_OOB}, \text{PENALTY\_COLLISION}) / 2.0$):
+     $$R_{\text{total}} = r_{\text{env}}$$
+   * На безопасном шаге ($r_{\text{env}} > -5.0$):
+     * При полном завершении исследования ($p_{\text{hidden}} < \text{REWARD\_EXPLORATION\_THRESHOLD}$):
+       $$R_{\text{total}} = r_{\text{env}} + \text{REWARD\_EXPLORATION\_COMPLETE\_BONUS} \quad (\text{bonus} = 10.0)$$
+     * При частичном исследовании:
+       $$R_{\text{total}} = r_{\text{env}} + (1.0 - p_{\text{hidden}}) \times \text{REWARD\_EXPLORATION\_PARTIAL\_FACTOR} \quad (\text{factor} = 2.0)$$
+
 ### Три режима заморозки
 
 | Флаги | Что обучается | Что заморожено | GPU память | Скорость |

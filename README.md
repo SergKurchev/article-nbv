@@ -22,16 +22,45 @@ This pose is achieved via Inverse Kinematics (IK) to position the robot's end-ef
 The PyBullet engine steps the physics forward according to the IK controls. The state transitions to $s_{t+1}$ based on the physical limits, collisions, and visual properties recalculated by the simulated camera and vision module.
 
 ## Reward Function
-The reward $r_t$ is defined sequentially to penalize catastrophic failures and reward increased visual information.
 
-| Событие / Условие                                                                          | Награда                                    |
-| :----------------------------------------------------------------------------------------- | :----------------------------------------- |
-| **Out-of-Bounds (OOB)** (Объект слишком далеко или под столом)                             | $-10$                                      |
-| **Collision** (Столкновение с препятствием или робота с объектом)                          | $-15$                                      |
-| **Valid Step** (Штатный шаг)                                                               | $+ (\text{Accuracy Difference} \times 10)$ |
+The reward function consists of two parts: **Base Environment Reward** ($r_{\text{env}}$) and **Exploration / Coverage Reward** ($R_{\text{total}}$). All values are configurable in `config.py`.
 
-*Note on Accuracy Difference:* If $p_{\text{target}}$ is the predicted probability of the true target class, and $p_{\text{max\_err}}$ is the highest probability assigned to an incorrect class:
-$$\text{Accuracy Difference}_t = p_{\text{target}}^t - p_{\text{max\_err}}^t$$
+### 1. Base Environment Reward ($r_{\text{env}}$)
+Determines safety and classification quality. On each step:
+
+* **Collision Penalty:** If the robot collides with an obstacle or the target object:
+  $$r_{\text{env}} = \text{PENALTY\_COLLISION} = -15.0$$
+* **Out-of-Bounds (OOB) Penalty:** If the camera leaves the safety workspace boundaries:
+  $$r_{\text{env}} = \text{PENALTY\_OOB} = -10.0$$
+* **Normal Step Reward:** If no collision or OOB occurs, the reward is calculated as:
+  $$r_{\text{env}} = r_{\text{classifier}} + r_{\text{all\_found}} + r_{\text{success\_classified}} + r_{\text{survival}}$$
+  
+  Where:
+  1. **Classifier Confidence Gain ($r_{\text{classifier}}$):** Encourages viewpoints that increase mean class probability:
+     $$r_{\text{classifier}} = \text{REWARD\_CLASSIFIER\_SCALE} \times (C_t - C_{t-1}) \quad (\text{scale} = 30.0)$$
+  2. **Discovery Bonus ($r_{\text{all\_found}}$):** One-time reward when all target objects are found:
+     $$r_{\text{all\_found}} = \text{REWARD\_ALL\_FOUND\_BONUS} = 50.0$$
+  3. **Success Bonus ($r_{\text{success\_classified}}$):** Reward when all target objects are correctly classified. This successfully terminates the episode:
+     $$r_{\text{success\_classified}} = \text{REWARD\_SUCCESS\_CLASSIFIED\_BONUS} = 100.0$$
+  4. **Survival Reward ($r_{\text{survival}}$):** Small positive incentive for safe navigation:
+     $$r_{\text{survival}} = \text{REWARD\_SURVIVAL} = 1.0$$
+
+---
+
+### 2. Exploration / Coverage Reward ($R_{\text{total}}$)
+The RL Agent (SAC) receives the final reward $R_{\text{total}}$ which combines $r_{\text{env}}$ with the coverage uncertainty ($p_{\text{hidden}}$) predicted by ODIN's Coverage Head:
+
+1. **Coverage Difference ($\Delta p_{\text{hidden}}$):**
+   $$\Delta p_{\text{hidden}} = p_{\text{hidden}}^{t} - p_{\text{hidden}}^{t+1}$$
+   $$r_{\text{coverage}} = \Delta p_{\text{hidden}} \times \text{REWARD\_SCALE} \quad (\text{scale} = 20.0)$$
+2. **Final SAC Step Reward ($R_{\text{total}}$):**
+   * If a catastrophic event occurred ($r_{\text{env}} \le \max(\text{PENALTY\_OOB}, \text{PENALTY\_COLLISION}) / 2.0$):
+     $$R_{\text{total}} = r_{\text{env}}$$
+   * If the step was safe ($r_{\text{env}} > -5.0$):
+     * If the scene is fully explored ($p_{\text{hidden}} < \text{REWARD\_EXPLORATION\_THRESHOLD}$):
+       $$R_{\text{total}} = r_{\text{env}} + \text{REWARD\_EXPLORATION\_COMPLETE\_BONUS} \quad (\text{bonus} = 10.0)$$
+     * If there are still hidden areas remaining ($p_{\text{hidden}} \ge 0.05$):
+       $$R_{\text{total}} = r_{\text{env}} + (1.0 - p_{\text{hidden}}) \times \text{REWARD\_EXPLORATION\_PARTIAL\_FACTOR} \quad (\text{factor} = 2.0)$$
 
 ## Visualizations and Architecture
 The project supports multiple neural network architectures for visual classification:

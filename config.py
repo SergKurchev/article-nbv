@@ -110,22 +110,52 @@ ACTION_MIN = [0.2, -0.5, 0.0, -3.14, -3.14, -3.14]
 ACTION_MAX = [0.8, 0.5, 0.8, 3.14, 3.14, 3.14]
 
 # Reward shaping
-REWARD_SCALE = 20.0 # Увеличено, так как delta_p_hidden может быть малой
+# REWARD_SCALE: Множитель для разницы неопределенности покрытия (delta_p_hidden = p_hidden_t - p_hidden_{t+1}).
+# Поскольку изменение вероятности обнаружения скрытых объектов может быть небольшим на каждом шаге,
+# этот коэффициент масштабирует разницу, делая сигнал награды более выраженным для RL-агента.
+REWARD_SCALE = 20.0 
+
+# PENALTY_OOB: Штраф за выход камеры робота за границы рабочей зоны (Out of Bounds).
+# Применяется, если целевые координаты x, y, z выходят за рамки ACTION_MIN и ACTION_MAX.
 PENALTY_OOB = -10.0
-PENALTY_COLLISION = -15.0  # Отдельный (более строгий) штраф за столкновение
+
+# PENALTY_COLLISION: Штраф за столкновение манипулятора с препятствием или целевым объектом.
+# Это критическое событие, поэтому штраф сделан более строгим, чтобы агент активно избегал коллизий.
+PENALTY_COLLISION = -15.0  
 
 # Classifier confidence change scaling
+# REWARD_CLASSIFIER_SCALE: Коэффициент масштабирования изменения уверенности классификатора.
+# Награда вычисляется как (mean_classifier_conf_t - mean_classifier_conf_{t-1}) * REWARD_CLASSIFIER_SCALE.
+# Стимулирует агента перемещать камеру в ракурсы, где классификатор более уверен в классах объектов.
 REWARD_CLASSIFIER_SCALE = 30.0
+
 # Bonus reward for finding all targets
-REWARD_ALL_FOUND_BONUS = 20.0
+# REWARD_ALL_FOUND_BONUS: Единоразовый бонус за обнаружение/регистрацию всех целевых объектов сцены.
+# Начисляется один раз за эпизод, когда количество найденных объектов совпадает с общим числом целей.
+REWARD_ALL_FOUND_BONUS = 50.0
+
 # Bonus reward for correctly classifying all targets
-REWARD_SUCCESS_CLASSIFIED_BONUS = 50.0
+# REWARD_SUCCESS_CLASSIFIED_BONUS: Бонус за успешную классификацию всех объектов сцены.
+# Начисляется, когда все целевые объекты распознаны верно. Приводит к успешному завершению эпизода (terminated = True).
+REWARD_SUCCESS_CLASSIFIED_BONUS = 100.0
+
 # Survival step reward
+# REWARD_SURVIVAL: Небольшая положительная награда за выживание (survival reward) на каждом шаге.
+# Начисляется за каждый шаг, в котором не произошло столкновений или выхода за границы.
 REWARD_SURVIVAL = 1.0
 
 # Exploration bonuses (based on p_hidden)
+# REWARD_EXPLORATION_THRESHOLD: Порог вероятности скрытых зон (p_hidden) для определения "полного исследования".
+# Если p_hidden опускается ниже этого значения, сцена считается полностью исследованной.
 REWARD_EXPLORATION_THRESHOLD = 0.05
+
+# REWARD_EXPLORATION_COMPLETE_BONUS: Крупный бонус за полное исследование сцены (когда p_hidden < REWARD_EXPLORATION_THRESHOLD).
+# Выдается только на безопасных шагах (без столкновений и OOB).
 REWARD_EXPLORATION_COMPLETE_BONUS = 10.0
+
+# REWARD_EXPLORATION_PARTIAL_FACTOR: Множитель для промежуточной награды за исследование.
+# Если сцена исследована не полностью, агент получает промежуточный бонус: (1.0 - p_hidden) * REWARD_EXPLORATION_PARTIAL_FACTOR.
+# Это дает плавный и непрерывный градиент награды, мотивирующий снижать p_hidden на каждом шаге.
 REWARD_EXPLORATION_PARTIAL_FACTOR = 2.0
 
 # Evaluation & Callbacks
