@@ -61,7 +61,7 @@ TEXTURE_PATH = DATA_DIR / "objects" / "texture.png" # Common texture at root
 # Stage 1: Single object, no obstacles
 # Stage 2: Multiple objects (2-10), no obstacles
 # Stage 3: Multiple objects (2-10) + obstacles
-SCENE_STAGE = 2  # Options: 1, 2, 3
+SCENE_STAGE = 3  # Options: 1, 2, 3
 
 # Stage 2 & 3: Multi-object parameters
 MIN_OBJECTS = 2  # Minimum number of objects in multi-object scenes
@@ -86,10 +86,10 @@ SCENE_MAX_PLACEMENT_ATTEMPTS = 100  # Maximum attempts to place object without c
 
 # Object and obstacle scaling
 OBJECT_SCALE_FACTOR = 1.0  # Scale factor for object size (1.0 = default size)
-OBSTACLE_SCALE_FACTOR = 1.0  # Scale factor for obstacle size (1.0 = default size)
+OBSTACLE_SCALE_FACTOR = 1.5  # Scale factor for obstacle size (1.0 = default size)
 
 # Episode limits
-MAX_STEPS_PER_EPISODE = 10
+MAX_STEPS_PER_EPISODE = 5
 
 # Camera
 IMAGE_SIZE = 256 # Увеличено для лучшей работы ODIN
@@ -113,6 +113,20 @@ ACTION_MAX = [0.8, 0.5, 0.8, 3.14, 3.14, 3.14]
 REWARD_SCALE = 20.0 # Увеличено, так как delta_p_hidden может быть малой
 PENALTY_OOB = -10.0
 PENALTY_COLLISION = -15.0  # Отдельный (более строгий) штраф за столкновение
+
+# Classifier confidence change scaling
+REWARD_CLASSIFIER_SCALE = 30.0
+# Bonus reward for finding all targets
+REWARD_ALL_FOUND_BONUS = 20.0
+# Bonus reward for correctly classifying all targets
+REWARD_SUCCESS_CLASSIFIED_BONUS = 50.0
+# Survival step reward
+REWARD_SURVIVAL = 1.0
+
+# Exploration bonuses (based on p_hidden)
+REWARD_EXPLORATION_THRESHOLD = 0.05
+REWARD_EXPLORATION_COMPLETE_BONUS = 10.0
+REWARD_EXPLORATION_PARTIAL_FACTOR = 2.0
 
 # Evaluation & Callbacks
 EVAL_FREQ = 2000

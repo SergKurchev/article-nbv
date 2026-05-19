@@ -615,11 +615,11 @@ def main():
             reward = float(_env_rew)
 
             # Добавляем наш бонус за исследование, только если не было столкновений или OOB
-            if _env_rew > -5.0:  # Штрафы равны -15 и -10, поэтому > -5 означает отсутствие штрафа
-                if p_hidden < 0.05:
-                    reward += 10.0  # Существенный бонус за полное исследование сцены
+            if _env_rew > max(config.PENALTY_OOB, config.PENALTY_COLLISION) / 2.0:
+                if p_hidden < config.REWARD_EXPLORATION_THRESHOLD:
+                    reward += config.REWARD_EXPLORATION_COMPLETE_BONUS  # Существенный бонус за полное исследование сцены
                 else:
-                    reward += (1.0 - p_hidden) * 2.0  # Постоянный стимул стремиться к меньшему p_hidden
+                    reward += (1.0 - p_hidden) * config.REWARD_EXPLORATION_PARTIAL_FACTOR  # Постоянный стимул стремиться к меньшему p_hidden
 
             next_obs["_raw_rgb"] = env.last_rgb
 

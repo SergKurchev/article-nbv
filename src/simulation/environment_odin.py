@@ -349,24 +349,24 @@ class NBVODINEnv(gym.Env):
             # 1. Награда за снижение неопределенности покрытия теперь вычисляется во внешнем цикле (train_odin_sac_rl.py)
             rew_coverage = 0.0
             
-            # 2. Награда за снижение неуверенности классификатора (скейлинг 30)
+            # 2. Награда за снижение неуверенности классификатора
             delta_class_conf = mean_class_conf - self.last_classifier_conf
-            rew_classifier = float(delta_class_conf * 30.0)
+            rew_classifier = float(delta_class_conf * config.REWARD_CLASSIFIER_SCALE)
             
             # 3. Бонус за нахождение всех объектов
             if len(self.cumulative_found_objects) == self.total_target_objects and not self.found_all_objects_bonus_given:
-                rew_all_found = 20.0
+                rew_all_found = config.REWARD_ALL_FOUND_BONUS
                 self.found_all_objects_bonus_given = True
                 
             # 4. Бонус за правильную классификацию всех объектов (success)
             correctly_classified_count = len(self.correctly_classified_objects)
             if correctly_classified_count == self.total_target_objects:
-                rew_success_classified = 50.0
+                rew_success_classified = config.REWARD_SUCCESS_CLASSIFIED_BONUS
                 terminated = True
                 success = True
                 
             # 5. Выживание (шаг без столкновений и OOB)
-            rew_survival = 1.0
+            rew_survival = config.REWARD_SURVIVAL
             
             reward = rew_classifier + rew_all_found + rew_success_classified + rew_survival
 
