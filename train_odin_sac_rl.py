@@ -459,14 +459,15 @@ def main():
                 if frame is not None:
                     video_frames.append(frame)
 
-            # Базовая награда за снижение неопределенности
-            reward = float(delta_p) * config.REWARD_SCALE
+            # Используем базовую награду среды (которая включает штрафы за столкновения и OOB)
+            reward = float(_env_rew)
 
-            # Дополнительная награда за то, что Coverage Head считает, что спрятанных предметов больше нет
-            if p_hidden < 0.05:
-                reward += 10.0  # Существенный бонус за полное исследование сцены
-            else:
-                reward += (1.0 - p_hidden) * 2.0  # Постоянный стимул стремиться к меньшему p_hidden
+            # Добавляем наш бонус за исследование, только если не было столкновений или OOB
+            if _env_rew > -5.0:  # Штрафы равны -15 и -10, поэтому > -5 означает отсутствие штрафа
+                if p_hidden < 0.05:
+                    reward += 10.0  # Существенный бонус за полное исследование сцены
+                else:
+                    reward += (1.0 - p_hidden) * 2.0  # Постоянный стимул стремиться к меньшему p_hidden
 
             done = terminated or truncated
             next_obs_vec = next_obs["vector"].copy()

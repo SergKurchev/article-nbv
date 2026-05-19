@@ -322,14 +322,15 @@ def main():
                 if frame is not None:
                     video_frames.append(frame)
 
-            # 8. Reward = delta_p_hidden (Coverage Head, frozen)
-            reward = delta_p * config.REWARD_SCALE
+            # 8. Reward = env reward (includes collision and OOB penalties)
+            reward = float(_env_reward)
 
             # Дополнительная награда за то, что Coverage Head считает, что спрятанных предметов больше нет
-            if p_hidden < 0.05:
-                reward += 10.0  # Существенный бонус за полное исследование сцены
-            else:
-                reward += (1.0 - p_hidden) * 2.0  # Постоянный стимул стремиться к меньшему p_hidden
+            if _env_reward > -5.0:  # Нет штрафов (поскольку штрафы -10 и -15)
+                if p_hidden < 0.05:
+                    reward += 10.0  # Существенный бонус за полное исследование сцены
+                else:
+                    reward += (1.0 - p_hidden) * 2.0  # Постоянный стимул стремиться к меньшему p_hidden
 
             rewards.append(reward)
             delta_ps.append(delta_p)
