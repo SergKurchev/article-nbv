@@ -318,7 +318,7 @@ def main():
 
             # Обучение Coverage Head на GT
             if p_hidden_logit_t is not None and coverage_optimizer is not None:
-                gt_p_hidden = float(env.num_hidden_objects) / float(env.total_target_objects)
+                gt_p_hidden = 1.0 if env.num_hidden_objects > 0 else 0.0
                 gt_tensor = torch.tensor([gt_p_hidden], dtype=torch.float32, device=device)
                 loss_cov = F.binary_cross_entropy_with_logits(p_hidden_logit_t.view(-1), gt_tensor.view(-1))
                 

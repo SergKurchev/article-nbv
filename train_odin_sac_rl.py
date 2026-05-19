@@ -465,8 +465,8 @@ def main():
                 obs, adapter, deterministic=False,
             )
 
-            # Сохраняем GT coverage для текущего состояния ДО шага (чтобы loss был корректным)
-            current_gt_p_hidden = float(env.num_hidden_objects) / float(env.total_target_objects) if env.total_target_objects > 0 else 1.0
+            # GT - вероятность того, что скрытые объекты все еще есть (1.0 если есть хотя бы один скрытый, иначе 0.0)
+            current_gt_p_hidden = 1.0 if env.num_hidden_objects > 0 else 0.0
 
             next_obs, _env_rew, terminated, truncated, info = env.step(
                 action_np,
