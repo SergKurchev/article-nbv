@@ -465,14 +465,36 @@ def main():
                 obs, adapter, deterministic=False,
             )
 
+            # Сохраняем GT coverage для текущего состояния ДО шага (чтобы loss был корректным)
+            current_gt_p_hidden = float(env.num_hidden_objects) / float(env.total_target_objects) if env.total_target_objects > 0 else 1.0
+
             next_obs, _env_rew, terminated, truncated, info = env.step(
                 action_np,
                 info_from_adapter={"instances_3d": instances_3d, "original_xyz": original_xyz}
             )
+            
+            # Predict p_hidden for next_obs to get the CORRECT delta_p_hidden for the CURRENT action
+            with torch.no_grad():
+                next_outputs = adapter.infer_for_rl(next_obs)
+                next_p_hidden_tensor = next_outputs["p_hidden"]
+                next_p_hidden = float(next_p_hidden_tensor.cpu().item())
+                
+            delta_p_hidden = p_hidden - next_p_hidden
+            rew_coverage = delta_p_hidden * config.REWARD_SCALE
+            
+            # Add coverage reward to the environment reward
+            total_reward = _env_rew + rew_coverage
+            
+            # Update step metrics in environment manually for logging
+            env.episode_history[-1]["delta_p_hidden"] = delta_p_hidden
+            env.episode_history[-1]["rew_coverage"] = rew_coverage
+            env.episode_history[-1]["reward"] = total_reward
+            env.current_episode_reward += rew_coverage
+            env.episode_history[-1]["cum_reward"] = env.current_episode_reward
+
             # Обучение Coverage Head на GT
             if p_hidden_logit_t is not None and coverage_optimizer is not None:
-                gt_p_hidden = float(env.num_hidden_objects) / float(env.total_target_objects)
-                gt_tensor = torch.tensor([gt_p_hidden], dtype=torch.float32, device=device)
+                gt_tensor = torch.tensor([current_gt_p_hidden], dtype=torch.float32, device=device)
                 loss_cov = F.binary_cross_entropy_with_logits(p_hidden_logit_t.view(-1), gt_tensor.view(-1))
                 
                 coverage_optimizer.zero_grad()

@@ -184,6 +184,8 @@ class NBVODINEnv(gym.Env):
             self.camera = Camera(self.client_id)
 
         p.resetSimulation(physicsClientId=self.client_id)
+        if hasattr(self, "asset_loader") and self.asset_loader is not None:
+            self.asset_loader.texture_cache.clear()
         p.setGravity(0, 0, -9.81, physicsClientId=self.client_id)
         p.setAdditionalSearchPath(
             config.get_short_path(pybullet_data.getDataPath()),
@@ -344,8 +346,8 @@ class NBVODINEnv(gym.Env):
         elif self._is_out_of_bounds(obs["vector"][:3]):
             reward = config.PENALTY_OOB
         else:
-            # 1. Награда за снижение неопределенности покрытия
-            rew_coverage = float(delta_p_hidden * config.REWARD_SCALE)
+            # 1. Награда за снижение неопределенности покрытия теперь вычисляется во внешнем цикле (train_odin_sac_rl.py)
+            rew_coverage = 0.0
             
             # 2. Награда за снижение неуверенности классификатора (скейлинг 30)
             delta_class_conf = mean_class_conf - self.last_classifier_conf
@@ -366,7 +368,7 @@ class NBVODINEnv(gym.Env):
             # 5. Выживание (шаг без столкновений и OOB)
             rew_survival = 1.0
             
-            reward = rew_coverage + rew_classifier + rew_all_found + rew_success_classified + rew_survival
+            reward = rew_classifier + rew_all_found + rew_success_classified + rew_survival
 
         self.last_classifier_conf = mean_class_conf
         self.current_episode_reward += reward
@@ -761,7 +763,7 @@ class NBVODINEnv(gym.Env):
                 height=300,
                 viewMatrix=view_matrix,
                 projectionMatrix=projection_matrix,
-                renderer=p.ER_TINY_RENDERER,
+                renderer=p.ER_BULLET_HARDWARE_OPENGL,
                 lightDirection=[1, 1, 1],
                 lightColor=[1, 1, 1],
                 lightDistance=100,

@@ -57,7 +57,7 @@ class Camera:
             height=self.height,
             viewMatrix=self.view_matrix,
             projectionMatrix=self.projection_matrix,
-            renderer=p.ER_TINY_RENDERER,
+            renderer=p.ER_BULLET_HARDWARE_OPENGL,
             lightDirection=[1, 1, 1],
             lightColor=[1, 1, 1],
             lightDistance=100,

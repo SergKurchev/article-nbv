@@ -54,8 +54,30 @@ def write_json(filename, faces):
             face_indices.append(v_map[v_tuple])
         indices.extend(face_indices)
         
+    # Calculate bounding box for texture mapping
+    xs = [v[0] for v in vertices]
+    ys = [v[1] for v in vertices]
+    zs = [v[2] for v in vertices]
+    
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+    min_z, max_z = min(zs), max(zs)
+    
+    range_z = max_z - min_z if max_z > min_z else 1.0
+    
+    uvs = []
+    for v in vertices:
+        # Cylindrical mapping: u wraps around Z, v goes along Z
+        theta = math.atan2(v[1], v[0])
+        u_val = (theta + math.pi) / (2.0 * math.pi)
+        v_val = (v[2] - min_z) / range_z
+        u_clamped = max(0.002, min(0.998, u_val))
+        v_clamped = max(0.002, min(0.998, v_val))
+        uvs.append([u_clamped, v_clamped])
+        
     with open(filename, 'w') as f:
-        json.dump({"vertices": vertices, "indices": indices}, f)
+        json.dump({"vertices": vertices, "indices": indices, "uvs": uvs}, f)
+
 
 def get_box_faces(dx, dy, dz):
     v = [

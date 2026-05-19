@@ -160,7 +160,7 @@ TEXTURE_MIXED_RANDOM_SEEDS = [42, 123, 456, 789, 1011, 1213, 1415, 1617, 1819, 2
 TEXTURE_GRADIENT_TYPE = "curved"  # "linear" or "curved"
 TEXTURE_GRADIENT_ANGLE = 45.0  # Base angle for linear gradient (degrees)
 TEXTURE_GRADIENT_SHARPNESS = 0.6  # 0.0=smooth, 1.0=sharp transition
-TEXTURE_GRADIENT_STEEPNESS = 30  # Sigmoid steepness for 3D rendering (20-50, higher=sharper)
+TEXTURE_GRADIENT_STEEPNESS = 5  # Sigmoid steepness for 3D rendering (20-50, higher=sharper)
 
 # Curved gradient parameters
 TEXTURE_CURVE_COMPLEXITY = 10  # Number of control points for Bezier curve (2-10, higher=more curves)

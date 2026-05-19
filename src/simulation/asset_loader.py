@@ -46,6 +46,7 @@ class AssetLoader:
                 mesh_data = json.load(f)
             v = mesh_data["vertices"]
             ind = mesh_data["indices"]
+            uvs = mesh_data.get("uvs", None)
             
             # Temporary creation to measure scale
             temp_col = p.createCollisionShape(shapeType=p.GEOM_MESH, vertices=v, indices=ind, physicsClientId=self.client_id)
@@ -58,7 +59,10 @@ class AssetLoader:
             target_size = 0.15 * config.OBJECT_SCALE_FACTOR
             scale = target_size / max_dim if max_dim > 0 else 1.0
             
-            visual_shape = p.createVisualShape(shapeType=p.GEOM_MESH, vertices=v, indices=ind, meshScale=[scale, scale, scale], physicsClientId=self.client_id)
+            if uvs is not None:
+                visual_shape = p.createVisualShape(shapeType=p.GEOM_MESH, vertices=v, indices=ind, uvs=uvs, meshScale=[scale, scale, scale], physicsClientId=self.client_id)
+            else:
+                visual_shape = p.createVisualShape(shapeType=p.GEOM_MESH, vertices=v, indices=ind, meshScale=[scale, scale, scale], physicsClientId=self.client_id)
             collision_shape = p.createCollisionShape(shapeType=p.GEOM_MESH, vertices=v, indices=ind, meshScale=[scale, scale, scale], physicsClientId=self.client_id)
         else:
             # Traditional STL load (as a fallback or for complex objects)
@@ -116,14 +120,13 @@ class AssetLoader:
             # Randomly select one of the 20 pre-generated mixed textures
             variant_idx = random.randint(0, config.TEXTURE_NUM_MIXED_VARIANTS - 1)
             selected_texture = texture_dir / f"mixed_{variant_idx}.png"
-            # Don't cache mixed textures - we want random selection each time
-            cache_key = None
+            cache_key = f"mixed_{variant_idx}"
         else:
             cache_key = texture_type
             selected_texture = texture_dir / f"{texture_type}.png"
 
-        # Check cache (only for non-mixed textures)
-        if cache_key and cache_key in self.texture_cache:
+        # Check cache
+        if cache_key in self.texture_cache:
             return self.texture_cache[cache_key]
 
         if not selected_texture.exists():
@@ -135,9 +138,8 @@ class AssetLoader:
         tex_path_short = config.get_short_path(selected_texture)
         tex_id = p.loadTexture(str(tex_path_short), physicsClientId=self.client_id)
 
-        # Cache only non-mixed textures
-        if cache_key:
-            self.texture_cache[cache_key] = tex_id
+        # Cache the texture
+        self.texture_cache[cache_key] = tex_id
 
         return tex_id
 
@@ -397,6 +399,7 @@ class AssetLoader:
                 mesh_data = json.load(f)
             v = mesh_data["vertices"]
             ind = mesh_data["indices"]
+            uvs = mesh_data.get("uvs", None)
 
             temp_col = p.createCollisionShape(shapeType=p.GEOM_MESH, vertices=v, indices=ind, physicsClientId=self.client_id)
             temp_body = p.createMultiBody(baseMass=0, baseCollisionShapeIndex=temp_col, physicsClientId=self.client_id)
@@ -408,7 +411,10 @@ class AssetLoader:
             target_size = 0.15 * config.OBJECT_SCALE_FACTOR
             scale = target_size / max_dim if max_dim > 0 else 1.0
 
-            visual_shape = p.createVisualShape(shapeType=p.GEOM_MESH, vertices=v, indices=ind, meshScale=[scale, scale, scale], physicsClientId=self.client_id)
+            if uvs is not None:
+                visual_shape = p.createVisualShape(shapeType=p.GEOM_MESH, vertices=v, indices=ind, uvs=uvs, meshScale=[scale, scale, scale], physicsClientId=self.client_id)
+            else:
+                visual_shape = p.createVisualShape(shapeType=p.GEOM_MESH, vertices=v, indices=ind, meshScale=[scale, scale, scale], physicsClientId=self.client_id)
             collision_shape = p.createCollisionShape(shapeType=p.GEOM_MESH, vertices=v, indices=ind, meshScale=[scale, scale, scale], physicsClientId=self.client_id)
         else:
             obj_path_short = config.get_short_path(obj_path)
