@@ -169,6 +169,7 @@ class NBVODINEnv(gym.Env):
         self.current_episode_min_p = 1.0
         self.last_p_hidden = 1.0
         self.episode_history = []
+        self.cumulative_found_objects = set()
 
         # Сброс адаптера ODIN
         if self.odin_adapter is not None:
@@ -264,21 +265,23 @@ class NBVODINEnv(gym.Env):
         delta_p_hidden = obs["vector"][7]  # Индекс 7 в векторе
 
         # Вычисляем награду
+        terminated = False
         if collision:
             reward = config.PENALTY_COLLISION
-            terminated = False
         elif self._is_out_of_bounds(obs["vector"][:3]):
             reward = config.PENALTY_OOB
-            terminated = False
         else:
             # Основная награда: снижение неопределённости (delta_p_hidden > 0 — хорошо)
             reward = delta_p_hidden * config.REWARD_SCALE
-            terminated = False
+            
+            # Проверяем, найдены ли все объекты за этот эпизод
+            if hasattr(self, "cumulative_found_objects") and len(self.cumulative_found_objects) == self.total_target_objects:
+                reward += 50.0  # Крупный бонус за нахождение всех объектов!
+                terminated = True  # Успешно завершаем эпизод досрочно
 
         self.current_episode_reward += reward
         self.current_episode_min_p = min(self.current_episode_min_p, self.last_p_hidden)
 
-        terminated = False
         truncated = self.step_count >= config.MAX_STEPS_PER_EPISODE
 
         if not self.headless:
@@ -451,7 +454,7 @@ class NBVODINEnv(gym.Env):
     # ------------------------------------------------------------------
 
     def _update_object_counts(self, seg):
-        """Считает сколько целевых объектов видно в данный момент."""
+        """Считает сколько целевых объектов видно в данный момент и накапливает найденные за эпизод."""
         visible_ids = np.unique(seg)
         found = 0
         for obj_id in self.asset_loader.target_objects:
@@ -459,8 +462,11 @@ class NBVODINEnv(gym.Env):
                 pixels = np.sum(seg == obj_id)
                 if pixels > 50: # Порог видимости
                     found += 1
+                    if not hasattr(self, "cumulative_found_objects"):
+                        self.cumulative_found_objects = set()
+                    self.cumulative_found_objects.add(obj_id)
         self.num_found_objects = found
-        self.num_hidden_objects = self.total_target_objects - self.num_found_objects
+        self.num_hidden_objects = self.total_target_objects - len(self.cumulative_found_objects)
 
     def _get_dummy_obs(self):
         return {
@@ -620,7 +626,8 @@ class NBVODINEnv(gym.Env):
                         (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
             cv2.putText(text_panel, f"p_hidden: {self.last_p_hidden:.3f}",
                         (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 255), 2)
-            cv2.putText(text_panel, f"Objects: {self.num_found_objects}/{self.total_target_objects}",
+            # Рисуем количество найденных объектов (кумулятивно за эпизод)
+            cv2.putText(text_panel, f"Objects: {len(self.cumulative_found_objects)}/{self.total_target_objects}",
                         (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (100, 255, 100), 2)
             cv2.putText(text_panel, f"Ep.Rew: {self.current_episode_reward:.1f}",
                         (10, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (150, 150, 255), 2)
@@ -659,8 +666,10 @@ class NBVODINEnv(gym.Env):
                     (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (100, 255, 100), 2)
         cv2.putText(text_panel, f"p_hidden: {self.last_p_hidden:.3f}",
                     (10, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (100, 200, 255), 2)
+        cv2.putText(text_panel, f"Objects: {len(self.cumulative_found_objects)}/{self.total_target_objects}",
+                    (10, 210), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (100, 255, 100), 2)
         cv2.putText(text_panel, f"Ep.Rew: {self.current_episode_reward:.2f}",
-                    (10, 210), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 255), 2)
+                    (10, 250), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 255), 2)
 
         top_row = np.hstack((cam_bgr, text_panel))
         if self.cached_plot_bgr is not None:
