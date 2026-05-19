@@ -148,7 +148,7 @@ class NBVODINEnv(gym.Env):
         self._load_history_from_csv()
 
         # Инициализируем пустой кэш графика
-        self.cached_plot_bgr = np.zeros((300, 700, 3), dtype=np.uint8)
+        self.cached_plot_bgr = np.ones((300, 1000, 3), dtype=np.uint8) * 240
 
         self.reset()
 
@@ -161,13 +161,14 @@ class NBVODINEnv(gym.Env):
 
         # Сохраняем историю прошлого эпизода
         if self.step_count > 0:
-            self.episode_rewards_history.append(self.current_episode_reward)
-            self.episode_p_hidden_history.append(self.current_episode_min_p)
+            self._save_episode_metrics()
 
         self.step_count = 0
         self.current_episode_reward = 0.0
         self.current_episode_min_p = 1.0
         self.last_p_hidden = 1.0
+        self.last_classifier_conf = 0.0
+        self.found_all_objects_bonus_given = False
         self.episode_history = []
         self.cumulative_found_objects = set()
 
@@ -201,6 +202,15 @@ class NBVODINEnv(gym.Env):
         self.target_obj_id = target_objects[0]
         self.total_target_objects = len(self.asset_loader.target_objects)
 
+        self.target_objects_info = {}
+        for i, obj_id in enumerate(self.asset_loader.target_objects):
+            pos, _ = p.getBasePositionAndOrientation(obj_id, physicsClientId=self.client_id)
+            self.target_objects_info[obj_id] = {
+                "position": np.array(pos, dtype=np.float32),
+                "gt_class": self.asset_loader.target_objects_classes[i]
+            }
+        self.correctly_classified_objects = set()
+
         if self.no_arm:
             p.changeDynamics(self.target_obj_id, -1, mass=0)
 
@@ -209,12 +219,11 @@ class NBVODINEnv(gym.Env):
 
         obs = self._get_obs()
 
-        if not self.headless:
-            self._update_plot_cache()
+        self._update_plot_cache()
 
         return obs, {}
 
-    def step(self, action):
+    def step(self, action, info_from_adapter=None):
         # Применяем действие
         if not self.no_arm:
             target_pos = action[:3]
@@ -242,16 +251,18 @@ class NBVODINEnv(gym.Env):
         moving_body_id = self.target_obj_id if self.no_arm else self.robot.robot_id
         collision = False
 
-        if not self.no_arm:
-            for obs_id in self.asset_loader.obstacles:
-                pts = p.getClosestPoints(
-                    bodyA=moving_body_id, bodyB=obs_id, distance=0.01,
-                    physicsClientId=self.client_id
-                )
-                if pts:
-                    collision = True
-                    break
+        # 1. Проверяем столкновения с препятствиями
+        for obs_id in self.asset_loader.obstacles:
+            pts = p.getClosestPoints(
+                bodyA=moving_body_id, bodyB=obs_id, distance=0.01,
+                physicsClientId=self.client_id
+            )
+            if pts:
+                collision = True
+                break
 
+        # 2. Если робот движется, проверяем столкновения с целевыми объектами
+        if not self.no_arm and not collision:
             for obj_id in self.asset_loader.target_objects:
                 pts = p.getClosestPoints(
                     bodyA=self.robot.robot_id, bodyB=obj_id, distance=0.01,
@@ -264,21 +275,100 @@ class NBVODINEnv(gym.Env):
         obs = self._get_obs()
         delta_p_hidden = obs["vector"][7]  # Индекс 7 в векторе
 
+        # Обновляем correctly_classified_objects по предсказаниям ODIN
+        mean_class_conf = 0.0
+        if info_from_adapter is not None:
+            instances_3d = info_from_adapter.get("instances_3d")
+            original_xyz = info_from_adapter.get("original_xyz")
+            
+            if instances_3d is not None:
+                pred_scores = instances_3d.get("pred_scores")
+                if pred_scores is not None and len(pred_scores) > 0:
+                    def to_numpy_scores(x):
+                        if hasattr(x, "detach"):
+                            return x.detach().cpu().numpy()
+                        return np.array(x)
+                    scores_np = to_numpy_scores(pred_scores)
+                    mean_class_conf = float(np.mean(scores_np))
+            
+            if instances_3d is not None and original_xyz is not None:
+                pred_masks = instances_3d.get("pred_masks")
+                pred_classes = instances_3d.get("pred_classes")
+                
+                if pred_masks is not None and pred_classes is not None and len(pred_masks) > 0:
+                    def to_numpy(x):
+                        if hasattr(x, "detach"):
+                            return x.detach().cpu().numpy()
+                        return x
+                    
+                    pred_masks_np = to_numpy(pred_masks)
+                    pred_classes_np = to_numpy(pred_classes)
+                    original_xyz_np = to_numpy(original_xyz)
+                    
+                    if pred_masks_np.shape[0] > pred_masks_np.shape[1] and pred_masks_np.ndim == 2:
+                        pred_masks_np = pred_masks_np.T
+                    
+                    num_instances = pred_masks_np.shape[0]
+                    for inst_idx in range(num_instances):
+                        m = pred_masks_np[inst_idx] > 0
+                        if np.sum(m) > 10:
+                            pred_pts = original_xyz_np[m]
+                            centroid = np.mean(pred_pts, axis=0)
+                            
+                            best_dist = 999.0
+                            best_obj_id = None
+                            for obj_id, t_info in self.target_objects_info.items():
+                                dist = np.linalg.norm(centroid - t_info["position"])
+                                if dist < best_dist:
+                                    best_dist = dist
+                                    best_obj_id = obj_id
+                            
+                            if best_dist < 0.25 and best_obj_id is not None:
+                                gt_class = self.target_objects_info[best_obj_id]["gt_class"]
+                                pred_class = int(pred_classes_np[inst_idx])
+                                if pred_class == gt_class:
+                                    self.correctly_classified_objects.add(best_obj_id)
+
         # Вычисляем награду
         terminated = False
+        success = False
+        
+        rew_coverage = 0.0
+        rew_classifier = 0.0
+        rew_all_found = 0.0
+        rew_success_classified = 0.0
+        rew_survival = 0.0
+        
         if collision:
             reward = config.PENALTY_COLLISION
         elif self._is_out_of_bounds(obs["vector"][:3]):
             reward = config.PENALTY_OOB
         else:
-            # Основная награда: снижение неопределённости (delta_p_hidden > 0 — хорошо)
-            reward = delta_p_hidden * config.REWARD_SCALE
+            # 1. Награда за снижение неопределенности покрытия
+            rew_coverage = float(delta_p_hidden * config.REWARD_SCALE)
             
-            # Проверяем, найдены ли все объекты за этот эпизод
-            if hasattr(self, "cumulative_found_objects") and len(self.cumulative_found_objects) == self.total_target_objects:
-                reward += 50.0  # Крупный бонус за нахождение всех объектов!
-                terminated = True  # Успешно завершаем эпизод досрочно
+            # 2. Награда за снижение неуверенности классификатора (скейлинг 30)
+            delta_class_conf = mean_class_conf - self.last_classifier_conf
+            rew_classifier = float(delta_class_conf * 30.0)
+            
+            # 3. Бонус за нахождение всех объектов
+            if len(self.cumulative_found_objects) == self.total_target_objects and not self.found_all_objects_bonus_given:
+                rew_all_found = 20.0
+                self.found_all_objects_bonus_given = True
+                
+            # 4. Бонус за правильную классификацию всех объектов (success)
+            correctly_classified_count = len(self.correctly_classified_objects)
+            if correctly_classified_count == self.total_target_objects:
+                rew_success_classified = 50.0
+                terminated = True
+                success = True
+                
+            # 5. Выживание (шаг без столкновений и OOB)
+            rew_survival = 1.0
+            
+            reward = rew_coverage + rew_classifier + rew_all_found + rew_success_classified + rew_survival
 
+        self.last_classifier_conf = mean_class_conf
         self.current_episode_reward += reward
         self.current_episode_min_p = min(self.current_episode_min_p, self.last_p_hidden)
 
@@ -302,9 +392,20 @@ class NBVODINEnv(gym.Env):
             "delta_p_hidden": float(delta_p_hidden),
             "reward": float(reward),
             "cum_reward": float(self.current_episode_reward),
+            "rew_coverage": float(rew_coverage),
+            "rew_classifier": float(rew_classifier),
+            "rew_all_found": float(rew_all_found),
+            "rew_success_classified": float(rew_success_classified),
+            "rew_survival": float(rew_survival),
             "found_objects": int(self.num_found_objects),
+            "objects_found_so_far": int(len(self.cumulative_found_objects)),
+            "correct_objects": int(len(self.correctly_classified_objects)),
             "hidden_objects": int(self.num_hidden_objects),
             "total_objects": int(self.total_target_objects),
+            "all_objects_found_real": int(1 if len(self.cumulative_found_objects) == self.total_target_objects else 0),
+            "model_confidence_all_found": float(1.0 - self.last_p_hidden),
+            "classifier_confidence_mean": float(mean_class_conf),
+            "success": int(success),
             "cam_x": float(pos[0]), "cam_y": float(pos[1]), "cam_z": float(pos[2]),
             "cam_roll": float(orn[0]), "cam_pitch": float(orn[1]), "cam_yaw": float(orn[2]), "cam_w": float(orn[3])
         }
@@ -314,6 +415,8 @@ class NBVODINEnv(gym.Env):
         info = {
             "delta_p_hidden": delta_p_hidden,
             "p_hidden": self.last_p_hidden,
+            "success": success,
+            "correct_objects": len(self.correctly_classified_objects),
             "nbv_pos": self.odin_adapter.last_nbv_pos if self.odin_adapter else None,
         }
 
@@ -343,70 +446,78 @@ class NBVODINEnv(gym.Env):
         
         # Сохраняем PNG график всей истории
         self._save_summary_plot()
+        
+        # Обновляем кэш графика для дашборда
+        self._update_plot_cache()
 
     def _save_summary_plot(self):
         """Сохраняет PNG файл с премиальным дизайном и двумя осями Y."""
         if not self.episode_rewards_history: return
         
-        plt.ioff()
-        fig = plt.figure(figsize=(14, 8), dpi=120)
-        ax1 = fig.add_subplot(111)
-        
-        eps = range(1, len(self.episode_rewards_history) + 1)
-        window = config.PLOT_MOVING_AVERAGE_WINDOW
-        
-        # --- Левая ось: Reward ---
-        color_rew = '#1F77B4' # Стандартный синий
-        ax1.set_xlabel('Training Episodes', fontsize=12, fontweight='bold')
-        ax1.set_ylabel('Total Reward', color=color_rew, fontsize=12, fontweight='bold')
-        
-        # Сырые данные (тонкие линии)
-        ax1.plot(eps, self.episode_rewards_history, color=color_rew, alpha=0.15, linewidth=1, label='Raw Episode Reward')
-        
-        if len(self.episode_rewards_history) >= window:
-            rew_ma = np.convolve(self.episode_rewards_history, np.ones(window)/window, mode='valid')
-            ma_eps = range(window, len(self.episode_rewards_history) + 1)
-            ax1.plot(ma_eps, rew_ma, color=color_rew, linewidth=3, 
-                    label=f'Avg Reward (Window: {window} eps)')
-            ax1.fill_between(ma_eps, rew_ma, min(self.episode_rewards_history), color=color_rew, alpha=0.1)
+        try:
+            plt.ioff()
+            fig = plt.figure(figsize=(14, 8), dpi=120)
+            ax1 = fig.add_subplot(111)
+            
+            eps = range(1, len(self.episode_rewards_history) + 1)
+            window = config.PLOT_MOVING_AVERAGE_WINDOW
+            if len(self.episode_rewards_history) < window:
+                window = 5
+            
+            # --- Левая ось: Reward ---
+            color_rew = '#1F77B4' # Стандартный синий
+            ax1.set_xlabel('Training Episodes', fontsize=12, fontweight='bold')
+            ax1.set_ylabel('Total Reward', color=color_rew, fontsize=12, fontweight='bold')
+            
+            # Сырые данные (тонкие линии)
+            ax1.plot(eps, self.episode_rewards_history, color=color_rew, alpha=0.15, linewidth=1, label='Raw Episode Reward')
+            
+            if len(self.episode_rewards_history) >= window:
+                rew_ma = np.convolve(self.episode_rewards_history, np.ones(window)/window, mode='valid')
+                ma_eps = range(window, len(self.episode_rewards_history) + 1)
+                ax1.plot(ma_eps, rew_ma, color=color_rew, linewidth=3, 
+                        label=f'Avg Reward (Window: {window} eps)')
+                ax1.fill_between(ma_eps, rew_ma, min(self.episode_rewards_history), color=color_rew, alpha=0.1)
 
-        ax1.tick_params(axis='y', labelcolor=color_rew)
-        ax1.spines['left'].set_color(color_rew)
-        ax1.spines['left'].set_linewidth(2)
-        
-        # --- Правая ось: p_hidden ---
-        ax2 = ax1.twinx()
-        color_ph = '#D62728' # Стандартный красный
-        ax2.set_ylabel('Min p_hidden (Uncertainty)', color=color_ph, fontsize=12, fontweight='bold')
-        
-        # Сырые данные (тонкие линии)
-        ax2.plot(eps, self.episode_p_hidden_history, color=color_ph, alpha=0.15, linewidth=1, label='Raw p_hidden')
-        
-        if len(self.episode_p_hidden_history) >= window:
-            ph_ma = np.convolve(self.episode_p_hidden_history, np.ones(window)/window, mode='valid')
-            ma_eps = range(window, len(self.episode_p_hidden_history) + 1)
-            ax2.plot(ma_eps, ph_ma, color=color_ph, linewidth=3, 
-                    label=f'Avg p_hidden (Window: {window} eps)')
-            ax2.fill_between(ma_eps, ph_ma, 0, color=color_ph, alpha=0.1)
+            ax1.tick_params(axis='y', labelcolor=color_rew)
+            ax1.spines['left'].set_color(color_rew)
+            ax1.spines['left'].set_linewidth(2)
+            
+            # --- Правая ось: p_hidden ---
+            ax2 = ax1.twinx()
+            color_ph = '#D62728' # Стандартный красный
+            ax2.set_ylabel('Min p_hidden (Uncertainty)', color=color_ph, fontsize=12, fontweight='bold')
+            
+            # Сырые данные (тонкие линии)
+            ax2.plot(eps, self.episode_p_hidden_history, color=color_ph, alpha=0.15, linewidth=1, label='Raw p_hidden')
+            
+            if len(self.episode_p_hidden_history) >= window:
+                ph_ma = np.convolve(self.episode_p_hidden_history, np.ones(window)/window, mode='valid')
+                ma_eps = range(window, len(self.episode_p_hidden_history) + 1)
+                ax2.plot(ma_eps, ph_ma, color=color_ph, linewidth=3, 
+                        label=f'Avg p_hidden (Window: {window} eps)')
+                ax2.fill_between(ma_eps, ph_ma, 0, color=color_ph, alpha=0.1)
 
-        ax2.tick_params(axis='y', labelcolor=color_ph)
-        ax2.spines['right'].set_color(color_ph)
-        ax2.spines['right'].set_linewidth(2)
-        ax2.set_ylim(0, 1.05)
-        
-        # Заголовок
-        plt.title(f"ODIN-RL Progress: {len(eps)} Episodes\nLast Reward: {self.episode_rewards_history[-1]:.1f} | Last p_hidden: {self.episode_p_hidden_history[-1]:.3f}", 
-                  fontsize=14, fontweight='bold', pad=15)
-        
-        ax1.grid(True, linestyle='--', alpha=0.4)
-        
-        # Сбор легенды (объединяем все)
-        h1, l1 = ax1.get_legend_handles_labels()
-        h2, l2 = ax2.get_legend_handles_labels()
-        ax1.legend(h1 + h2, l1 + l2, loc='upper left', frameon=True, fontsize=10)
-        
-        fig.savefig(self.summary_plot_path, bbox_inches='tight')
-        plt.close(fig)
+            ax2.tick_params(axis='y', labelcolor=color_ph)
+            ax2.spines['right'].set_color(color_ph)
+            ax2.spines['right'].set_linewidth(2)
+            ax2.set_ylim(0, 1.05)
+            
+            # Заголовок
+            plt.title(f"ODIN-RL Progress: {len(eps)} Episodes\nLast Reward: {self.episode_rewards_history[-1]:.1f} | Last p_hidden: {self.episode_p_hidden_history[-1]:.3f}", 
+                      fontsize=14, fontweight='bold', pad=15)
+            
+            ax1.grid(True, linestyle='--', alpha=0.4)
+            
+            # Сбор легенды (объединяем все)
+            h1, l1 = ax1.get_legend_handles_labels()
+            h2, l2 = ax2.get_legend_handles_labels()
+            ax1.legend(h1 + h2, l1 + l2, loc='upper left', frameon=True, fontsize=10)
+            
+            fig.savefig(self.summary_plot_path, bbox_inches='tight')
+            plt.close(fig)
+        except Exception as e:
+            print(f"[WARNING] Could not save summary plot: {e}")
 
     def _load_history_from_csv(self):
         """Загружает историю из CSV для продолжения графиков."""
@@ -566,13 +677,19 @@ class NBVODINEnv(gym.Env):
     def _update_plot_cache(self):
         """Обновляет кэш графика обучения (история эпизодов)."""
         if not hasattr(self, "episode_rewards_history") or not self.episode_rewards_history:
+            # Инициализируем светло-серый фон
+            self.cached_plot_bgr = np.ones((300, 1000, 3), dtype=np.uint8) * 240
+            cv2.putText(self.cached_plot_bgr, "Waiting for first episode to complete...", (200, 150),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, (100, 100, 100), 2)
             return
         
-        fig, ax = plt.subplots(figsize=(7, 3), dpi=100)
+        fig, ax = plt.subplots(figsize=(10, 3), dpi=100)
         eps = range(1, len(self.episode_rewards_history) + 1)
         ax.plot(eps, self.episode_rewards_history, alpha=0.3, color='blue', label='Reward')
         ax.plot(eps, self.episode_p_hidden_history, alpha=0.3, color='red', label='Min p_hidden')
         window = config.PLOT_MOVING_AVERAGE_WINDOW
+        if len(self.episode_rewards_history) < window:
+            window = 5
         if len(self.episode_rewards_history) >= window:
             rew_ma = np.convolve(self.episode_rewards_history, np.ones(window)/window, mode='valid')
             ph_ma = np.convolve(self.episode_p_hidden_history, np.ones(window)/window, mode='valid')
@@ -581,11 +698,17 @@ class NBVODINEnv(gym.Env):
             ax.plot(ma_eps, ph_ma, color='red', linewidth=2, label=f'p_hidden MA({window})')
         ax.set_xlabel('Episodes')
         ax.legend(loc='upper left', fontsize=8)
-        fig.tight_layout(pad=0.5)
-        fig.canvas.draw()
-        plot_img = np.asarray(fig.canvas.buffer_rgba())[:, :, :3]
-        plt.close(fig)
-        self.cached_plot_bgr = cv2.cvtColor(plot_img, cv2.COLOR_RGB2BGR)
+        try:
+            fig.canvas.draw()
+            rgba_buf = fig.canvas.buffer_rgba()
+            plot_img = np.asarray(rgba_buf)[:, :, :3]
+            self.cached_plot_bgr = cv2.cvtColor(plot_img, cv2.COLOR_RGB2BGR)
+        except Exception:
+            self.cached_plot_bgr = np.ones((300, 1000, 3), dtype=np.uint8) * 240
+            cv2.putText(self.cached_plot_bgr, f"Training Progress ({len(self.episode_rewards_history)} eps)", (250, 150),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, (100, 100, 100), 2)
+        finally:
+            plt.close(fig)
 
     def _update_plot(self):
         """Рисует историю p_hidden и Reward текущего эпизода."""
@@ -611,6 +734,53 @@ class NBVODINEnv(gym.Env):
         plt.close(fig)
         self.cached_plot_bgr = cv2.cvtColor(plot_img, cv2.COLOR_RGB2BGR)
 
+    def _get_third_person_image(self):
+        """Рендерит вид со стороны на всю сцену."""
+        try:
+            eye = [1.2, 0.7, 0.8]
+            target = [0.5, 0.0, 0.2]
+            up = [0.0, 0.0, 1.0]
+            
+            view_matrix = p.computeViewMatrix(
+                cameraEyePosition=eye,
+                cameraTargetPosition=target,
+                cameraUpVector=up,
+                physicsClientId=self.client_id
+            )
+            
+            projection_matrix = p.computeProjectionMatrixFOV(
+                fov=50.0,
+                aspect=1.0,
+                nearVal=0.1,
+                farVal=10.0,
+                physicsClientId=self.client_id
+            )
+            
+            w, h, rgb, depth, seg = p.getCameraImage(
+                width=300,
+                height=300,
+                viewMatrix=view_matrix,
+                projectionMatrix=projection_matrix,
+                renderer=p.ER_TINY_RENDERER,
+                lightDirection=[1, 1, 1],
+                lightColor=[1, 1, 1],
+                lightDistance=100,
+                shadow=0,
+                lightAmbientCoeff=0.7,
+                lightDiffuseCoeff=0.3,
+                lightSpecularCoeff=0.1,
+                physicsClientId=self.client_id
+            )
+            
+            rgba = np.array(rgb, dtype=np.uint8).reshape(h, w, 4)
+            rgb_img = rgba[:, :, :3]
+            if h != 300 or w != 300:
+                rgb_img = cv2.resize(rgb_img, (300, 300))
+            return rgb_img
+        except Exception as e:
+            print(f"[DEBUG] Third person render error: {e}")
+            return np.zeros((300, 300, 3), dtype=np.uint8)
+
     def render(self):
         """Возвращает текущий кадр дашборда для записи видео."""
         if self.render_mode == "rgb_array":
@@ -619,6 +789,8 @@ class NBVODINEnv(gym.Env):
                 cam_rgb = cv2.resize(self.last_rgb, (300, 300))
             else:
                 cam_rgb = np.zeros((300, 300, 3), dtype=np.uint8)
+
+            third_person_rgb = self._get_third_person_image()
 
             text_panel = np.ones((300, 400, 3), dtype=np.uint8) * 40
             # Рисуем текст (используем белый цвет для RGB)
@@ -634,13 +806,26 @@ class NBVODINEnv(gym.Env):
 
             # Добавляем инфо о позе
             if self.robot is not None:
-                pos, _ = self.robot.get_ee_pose()
+                pos, orn = self.robot.get_ee_pose()
             else:
                 pos = getattr(self, "no_arm_pos", [1.0, 0.0, 0.5])
-            cv2.putText(text_panel, f"Pos: {pos[0]:.2f}, {pos[1]:.2f}, {pos[2]:.2f}",
-                        (10, 220), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+                orn = getattr(self, "no_arm_orn", [0.0, 0.0, 0.0, 1.0])
+            
+            try:
+                euler = p.getEulerFromQuaternion(orn)
+                r_deg = np.degrees(euler[0])
+                p_deg = np.degrees(euler[1])
+                y_deg = np.degrees(euler[2])
+                rot_str = f"Rot: {r_deg:.1f}, {p_deg:.1f}, {y_deg:.1f} (deg)"
+            except Exception:
+                rot_str = "Rot: 0.0, 0.0, 0.0"
 
-            top_row = np.hstack((cam_rgb, text_panel))
+            cv2.putText(text_panel, f"Pos: {pos[0]:.2f}, {pos[1]:.2f}, {pos[2]:.2f}",
+                        (10, 210), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+            cv2.putText(text_panel, rot_str,
+                        (10, 240), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+
+            top_row = np.hstack((cam_rgb, third_person_rgb, text_panel))
             if self.cached_plot_bgr is not None:
                 plot_rgb = cv2.cvtColor(self.cached_plot_bgr, cv2.COLOR_BGR2RGB)
                 plot_resized = cv2.resize(plot_rgb, (top_row.shape[1], 300))
@@ -657,6 +842,9 @@ class NBVODINEnv(gym.Env):
         else:
             cam_bgr = np.zeros((300, 300, 3), dtype=np.uint8)
 
+        third_person_rgb = self._get_third_person_image()
+        third_person_bgr = cv2.cvtColor(third_person_rgb, cv2.COLOR_RGB2BGR)
+
         text_panel = np.ones((300, 400, 3), dtype=np.uint8) * 40
         cv2.putText(text_panel, f"Step: {self.step_count}/{config.MAX_STEPS_PER_EPISODE}",
                     (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
@@ -671,7 +859,7 @@ class NBVODINEnv(gym.Env):
         cv2.putText(text_panel, f"Ep.Rew: {self.current_episode_reward:.2f}",
                     (10, 250), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 255), 2)
 
-        top_row = np.hstack((cam_bgr, text_panel))
+        top_row = np.hstack((cam_bgr, third_person_bgr, text_panel))
         if self.cached_plot_bgr is not None:
             plot_resized = cv2.resize(self.cached_plot_bgr, (top_row.shape[1], 300))
             dashboard = np.vstack((top_row, plot_resized))

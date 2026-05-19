@@ -240,7 +240,7 @@ class OdinSACAgent:
         # Observation vector для replay buffer
         obs_vec = obs["vector"].copy()
 
-        return action_np, log_prob, obs_vec, result["delta_p_hidden"], result["p_hidden"]
+        return action_np, log_prob, obs_vec, result["delta_p_hidden"], result["p_hidden"], result.get("p_hidden_logit_t"), result.get("instances_3d"), result.get("original_xyz")
 
     def get_action_from_obs_vec(self, obs_vec_batch):
         """
@@ -375,9 +375,9 @@ def main():
     # --- Freeze ---
     if args.freeze_backbone:
         for name, param in model.named_parameters():
-            param.requires_grad_("nbv_head" in name)
+            param.requires_grad_("nbv_head" in name or "coverage_head" in name)
         tp = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        print(f"[INFO] --freeze_backbone: trainable {tp:,} params (NBV Head only)")
+        print(f"[INFO] --freeze_backbone: trainable {tp:,} params (NBV Head + Coverage Head)")
     else:
         for p in model.parameters():
             p.requires_grad_(True)
@@ -415,8 +415,20 @@ def main():
     csv_f = open(csv_path, "a", newline="")
     csv_w = csv.writer(csv_f)
     if csv_path.stat().st_size == 0:
-        csv_w.writerow(["step", "episode", "ep_reward", "ep_steps",
-                        "p_hidden", "critic_loss", "actor_loss", "alpha"])
+        csv_w.writerow(["step", "episode", "ep_reward", "ep_steps", "success",
+                        "p_hidden", "critic_loss", "actor_loss", "coverage_loss", "alpha"])
+
+    # --- Coverage Optimizer ---
+    coverage_params = [
+        p for n, p in model.named_parameters()
+        if p.requires_grad and "coverage_head" in n
+    ]
+    if len(coverage_params) > 0:
+        coverage_optimizer = torch.optim.Adam(coverage_params, lr=1e-4)
+    else:
+        coverage_optimizer = None
+
+    import torch.nn.functional as F
 
     # --- Train ---
     print(f"\n{'='*60}")
@@ -437,6 +449,8 @@ def main():
         ep_reward = 0.0
         ep_steps = 0
         c_loss = a_loss = 0.0
+        ep_cov_losses = []
+        success_flag = 0
 
         record_video = (episode + 1) in args.record_episodes
         video_frames = []
@@ -447,17 +461,24 @@ def main():
 
         for step in range(config.MAX_STEPS_PER_EPISODE):
             # Action from NBV Head
-            action_np, log_prob, obs_vec, delta_p, p_hidden = agent.get_action(
+            action_np, log_prob, obs_vec, delta_p, p_hidden, p_hidden_logit_t, instances_3d, original_xyz = agent.get_action(
                 obs, adapter, deterministic=False,
             )
 
-            next_obs, _env_rew, terminated, truncated, info = env.step(action_np)
-            next_obs["_raw_rgb"] = env.last_rgb
-
-            if record_video and env.render_mode == "rgb_array":
-                frame = env.render()
-                if frame is not None:
-                    video_frames.append(frame)
+            next_obs, _env_rew, terminated, truncated, info = env.step(
+                action_np,
+                info_from_adapter={"instances_3d": instances_3d, "original_xyz": original_xyz}
+            )
+            # Обучение Coverage Head на GT
+            if p_hidden_logit_t is not None and coverage_optimizer is not None:
+                gt_p_hidden = float(env.num_hidden_objects) / float(env.total_target_objects)
+                gt_tensor = torch.tensor([gt_p_hidden], dtype=torch.float32, device=device)
+                loss_cov = F.binary_cross_entropy_with_logits(p_hidden_logit_t.view(-1), gt_tensor.view(-1))
+                
+                coverage_optimizer.zero_grad()
+                loss_cov.backward()
+                coverage_optimizer.step()
+                ep_cov_losses.append(loss_cov.item())
 
             # Используем базовую награду среды (которая включает штрафы за столкновения и OOB)
             reward = float(_env_rew)
@@ -469,14 +490,23 @@ def main():
                 else:
                     reward += (1.0 - p_hidden) * 2.0  # Постоянный стимул стремиться к меньшему p_hidden
 
+            next_obs["_raw_rgb"] = env.last_rgb
+
             done = terminated or truncated
             next_obs_vec = next_obs["vector"].copy()
+
+            if record_video and env.render_mode == "rgb_array":
+                frame = env.render()
+                if frame is not None:
+                    video_frames.append(frame)
 
             replay_buffer.push(obs_vec, action_np, reward, next_obs_vec, float(done))
 
             ep_reward += reward
             ep_steps += 1
             total_step += 1
+            if info.get("success", False):
+                success_flag = 1
 
             # SAC updates
             if len(replay_buffer) >= args.learning_starts and total_step % args.update_freq == 0:
@@ -501,9 +531,10 @@ def main():
             imageio.mimsave(str(video_path), video_frames, fps=15)
             print(f"[INFO] Video saved: {video_path}")
 
-        csv_w.writerow([total_step, episode, f"{ep_reward:.4f}", ep_steps,
+        avg_cov_loss = np.mean(ep_cov_losses) if len(ep_cov_losses) > 0 else 0.0
+        csv_w.writerow([total_step, episode, f"{ep_reward:.4f}", ep_steps, success_flag,
                         f"{adapter.last_p_hidden:.4f}", f"{c_loss:.4f}",
-                        f"{a_loss:.4f}", f"{agent.alpha.item():.4f}"])
+                        f"{a_loss:.4f}", f"{avg_cov_loss:.4f}", f"{agent.alpha.item():.4f}"])
         csv_f.flush()
 
         if episode % 10 == 0:
@@ -512,7 +543,7 @@ def main():
                   f"R={ep_reward:+7.2f}  avg={avg:+7.2f}  "
                   f"p={adapter.last_p_hidden:.3f}  "
                   f"α={agent.alpha.item():.3f}  "
-                  f"cL={c_loss:.3f} aL={a_loss:.3f}")
+                  f"cL={c_loss:.3f} aL={a_loss:.3f} covL={avg_cov_loss:.3f}")
 
         if total_step % args.save_freq == 0:
             _save(model, agent, output_dir / f"ckpt_step{total_step}.pth")

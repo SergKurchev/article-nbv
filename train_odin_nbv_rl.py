@@ -177,17 +177,17 @@ def main():
         frozen_count = 0
         trainable_count = 0
         for name, param in model.named_parameters():
-            if "nbv_head" in name:
+            if "nbv_head" in name or "coverage_head" in name:
                 param.requires_grad_(True)
                 trainable_count += 1
             else:
-                # Замораживаем backbone, pixel decoder, Coverage Head
+                # Замораживаем backbone, pixel decoder
                 param.requires_grad_(False)
                 frozen_count += 1
         trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         total_params = sum(p.numel() for p in model.parameters())
         print(f"[INFO] --freeze_backbone: frozen {frozen_count} param groups, "
-              f"trainable {trainable_count} (NBV Head).")
+              f"trainable {trainable_count} (NBV Head + Coverage Head).")
         print(f"[INFO] Trainable params: {trainable_params:,} / {total_params:,}")
     else:
         # End-to-end: всё размораживается
@@ -199,10 +199,24 @@ def main():
     # Переводим модель в train() для NBV Head (BatchNorm/Dropout если есть)
     model.train()
 
-    # --- Оптимизатор (только trainable параметры) ---
-    trainable = [p for p in model.parameters() if p.requires_grad]
+    # --- Оптимизатор (только для NBV Head / Policy) ---
+    trainable = [
+        p for n, p in model.named_parameters()
+        if p.requires_grad and "nbv_head" in n
+    ]
     optimizer = torch.optim.Adam(trainable, lr=args.lr)
-    print(f"[INFO] Optimizer: Adam, lr={args.lr}, params={len(trainable)}")
+    print(f"[INFO] Optimizer (Policy): Adam, lr={args.lr}, params={len(trainable)}")
+
+    # --- Оптимизатор для Coverage Head ---
+    coverage_params = [
+        p for n, p in model.named_parameters()
+        if p.requires_grad and "coverage_head" in n
+    ]
+    if len(coverage_params) > 0:
+        coverage_optimizer = torch.optim.Adam(coverage_params, lr=1e-4)
+    else:
+        coverage_optimizer = None
+    print(f"[INFO] Optimizer (Coverage): Adam, lr=1e-4, params={len(coverage_params)}")
 
     # --- Среда ---
     config.SCENE_STAGE = args.scene_stage
@@ -229,7 +243,7 @@ def main():
     if metrics_path.stat().st_size == 0:
         csv_writer.writerow([
             "episode", "total_reward", "mean_delta_p", "final_p_hidden",
-            "policy_loss", "exploration_std", "steps"
+            "policy_loss", "coverage_loss", "exploration_std", "steps", "success"
         ])
 
     # --- REINFORCE baseline ---
@@ -251,6 +265,8 @@ def main():
         log_probs = []
         rewards = []
         delta_ps = []
+        ep_cov_losses = []
+        success_flag = 0
 
         record_video = episode in args.record_episodes
         video_frames = []
@@ -294,8 +310,22 @@ def main():
 
             nbv_pos_t = result["nbv_pos_t"]    # (3,) tensor с grad
             nbv_quat_t = result["nbv_quat_t"]  # (4,) tensor с grad
+            p_hidden_logit_t = result.get("p_hidden_logit_t")
+            instances_3d = result.get("instances_3d")
+            original_xyz = result.get("original_xyz")
             delta_p = result["delta_p_hidden"]
             p_hidden = result["p_hidden"]
+
+            # Обучение Coverage Head на GT
+            if p_hidden_logit_t is not None and coverage_optimizer is not None:
+                gt_p_hidden = float(env.num_hidden_objects) / float(env.total_target_objects)
+                gt_tensor = torch.tensor([gt_p_hidden], dtype=torch.float32, device=device)
+                loss_cov = F.binary_cross_entropy_with_logits(p_hidden_logit_t.view(-1), gt_tensor.view(-1))
+                
+                coverage_optimizer.zero_grad()
+                loss_cov.backward()
+                coverage_optimizer.step()
+                ep_cov_losses.append(loss_cov.item())
 
             # 4. Конвертируем кватернион → эйлер (дифференцируемо)
             euler_t = quat_to_euler_torch(nbv_quat_t)  # (3,)
@@ -315,8 +345,12 @@ def main():
             action_np = action_t.detach().cpu().numpy().astype(np.float32)
             action_np = np.clip(action_np, config.ACTION_MIN, config.ACTION_MAX)
 
-            obs, _env_reward, terminated, truncated, info = env.step(action_np)
+            obs, _env_reward, terminated, truncated, info = env.step(
+                action_np,
+                info_from_adapter={"instances_3d": instances_3d, "original_xyz": original_xyz}
+            )
 
+            done = terminated or truncated
             if record_video and env.render_mode == "rgb_array":
                 frame = env.render()
                 if frame is not None:
@@ -334,6 +368,8 @@ def main():
 
             rewards.append(reward)
             delta_ps.append(delta_p)
+            if info.get("success", False):
+                success_flag = 1
 
             if terminated or truncated:
                 break
@@ -379,6 +415,7 @@ def main():
         # --- Логирование ---
         mean_dp = np.mean(delta_ps) if delta_ps else 0.0
         final_p = adapter.last_p_hidden
+        avg_cov_loss = np.mean(ep_cov_losses) if ep_cov_losses else 0.0
 
         if record_video and video_frames:
             video_dir = output_dir / "videos"
@@ -390,7 +427,7 @@ def main():
 
         csv_writer.writerow([
             episode, f"{ep_reward:.4f}", f"{mean_dp:.4f}", f"{final_p:.4f}",
-            f"{loss_val:.4f}", f"{exploration_std:.4f}", len(rewards)
+            f"{loss_val:.4f}", f"{avg_cov_loss:.4f}", f"{exploration_std:.4f}", len(rewards), success_flag
         ])
         csv_file.flush()
 
@@ -398,7 +435,7 @@ def main():
             avg_rew = np.mean(list(reward_history)) if reward_history else 0
             print(f"[Ep {episode:4d}/{args.total_episodes}]  "
                   f"R={ep_reward:+7.2f}  avg_R={avg_rew:+7.2f}  "
-                  f"p_hidden={final_p:.3f}  loss={loss_val:.3f}  "
+                  f"p_hidden={final_p:.3f}  loss={loss_val:.3f}  covL={avg_cov_loss:.3f}  "
                   f"σ={exploration_std:.4f}")
 
         # --- Checkpoint ---

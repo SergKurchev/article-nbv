@@ -134,6 +134,7 @@ class _FakeAssetLoader:
     def __init__(self, *a, **kw):
         self.obstacles = []
         self.target_objects = [1]
+        self.target_objects_classes = [0]
     def load_robot(self): return 0
     def generate_scene(self): return [1]
 

@@ -349,7 +349,10 @@ class ODINAdapter:
             "nbv_pos_t": nbv_pos_t,
             "nbv_quat_t": nbv_quat_t,
             "p_hidden": p_hidden,
+            "p_hidden_logit_t": outputs.get("p_hidden", None),
             "delta_p_hidden": prev_p_hidden - p_hidden,
+            "instances_3d": outputs.get("instances_3d", None),
+            "original_xyz": original_xyz_list[0].detach().cpu().numpy() if original_xyz_list is not None else None,
         }
 
     def _empty_result_rl(self) -> dict:
