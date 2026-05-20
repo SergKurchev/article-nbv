@@ -347,6 +347,11 @@ sample_XXXXX/
 - **Stage 2**: https://www.kaggle.com/datasets/sergeykurchev/nbv-stage2-dataset
 - **Stage 3**: https://www.kaggle.com/datasets/sergeykurchev/nbv-stage3-dataset
 
+### Последние обученные модели на Kaggle
+
+- **Stage 3 Active Model**: https://www.kaggle.com/code/sergkurchevusa/strawpick-segpointnet-my-odin-nbv-3-active?scriptVersionId=320915372
+- **Stage 2 Active Model**: https://www.kaggle.com/code/sergeistwpk/strawpick-segpoinnet-my-odin-nbv-2-active?scriptVersionId=317362509
+
 ### Download from Kaggle
 ```bash
 pip install kaggle
