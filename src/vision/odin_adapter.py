@@ -388,7 +388,7 @@ class ODINAdapter:
             "p_hidden_logit_t": outputs.get("p_hidden", None),
             "delta_p_hidden": prev_p_hidden - p_hidden,
             "instances_3d": outputs.get("instances_3d", None),
-            "original_xyz": original_xyz_list[0].detach().cpu().numpy() if original_xyz_list is not None else None,
+            "original_xyz": original_xyz_list[0].detach().cpu().numpy().reshape(-1, 3) if original_xyz_list is not None else None,
             "scene_embedding": scene_emb,
         }
 

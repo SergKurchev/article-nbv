@@ -307,6 +307,9 @@ class NBVODINEnv(gym.Env):
                     pred_masks_np = to_numpy(pred_masks)
                     pred_classes_np = to_numpy(pred_classes)
                     original_xyz_np = to_numpy(original_xyz)
+                    # Flatten any leading batch/view dims: (V, N, 3) -> (V*N, 3)
+                    if original_xyz_np is not None and original_xyz_np.ndim > 2:
+                        original_xyz_np = original_xyz_np.reshape(-1, 3)
                     
                     if pred_masks_np.shape[0] > pred_masks_np.shape[1] and pred_masks_np.ndim == 2:
                         pred_masks_np = pred_masks_np.T
