@@ -1,15 +1,20 @@
 {
-  "id": "sergkurchevusa/nbv-training-full-pipeline",
-  "title": "NBV Training Full Pipeline",
-  "code_file": "kaggle_training_clean.ipynb",
+  "id": "sergeistwpk/strawpick-segpoinnet-my-odin-nbv-3-active",
+  "title": "StrawPick_SegPoinNet_my_ODIN_NBV_3_active",
+  "code_file": "strawpick-segpoinnet-my-odin-nbv-3-active.ipynb",
   "language": "python",
   "kernel_type": "notebook",
-  "is_private": "true",
-  "enable_gpu": "true",
-  "enable_tpu": "false",
-  "enable_internet": "true",
-  "dataset_sources": [],
+  "is_private": false,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "keywords": [],
+  "dataset_sources": [
+    "sergkurchevusa/nbv-stage-3-dataset-multi-object-obstacles-correct"
+  ],
+  "kernel_sources": [
+    "sergeykurchev/strawpick-segpoinnet-my-odin-nbv-2-active"
+  ],
   "competition_sources": [],
-  "kernel_sources": [],
   "model_sources": []
 }
