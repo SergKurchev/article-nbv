@@ -1,0 +1,19 @@
+{
+  "id": "sergeistwpk/strawpick-segpoinnet-my-odin-nbv-2-active",
+  "id_no": 118244779,
+  "title": "StrawPick_SegPoinNet_my_ODIN_NBV_2_active",
+  "code_file": "strawpick-segpoinnet-my-odin-nbv-2-active.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": false,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "keywords": [],
+  "dataset_sources": [
+    "sergkurchevusa/nbv-stage-2-dataset-multi-object-correct"
+  ],
+  "kernel_sources": [],
+  "competition_sources": [],
+  "model_sources": []
+}

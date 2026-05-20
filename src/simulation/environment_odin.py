@@ -185,7 +185,8 @@ class NBVODINEnv(gym.Env):
 
         p.resetSimulation(physicsClientId=self.client_id)
         if hasattr(self, "asset_loader") and self.asset_loader is not None:
-            self.asset_loader.texture_cache.clear()
+            if hasattr(self.asset_loader, "texture_cache"):
+                self.asset_loader.texture_cache.clear()
         p.setGravity(0, 0, -9.81, physicsClientId=self.client_id)
         p.setAdditionalSearchPath(
             config.get_short_path(pybullet_data.getDataPath()),
@@ -411,7 +412,6 @@ class NBVODINEnv(gym.Env):
             "cam_x": float(pos[0]), "cam_y": float(pos[1]), "cam_z": float(pos[2]),
             "cam_roll": float(orn[0]), "cam_pitch": float(orn[1]), "cam_yaw": float(orn[2]), "cam_w": float(orn[3])
         }
-        self._save_step_metrics(step_metrics)
         self.episode_history.append(step_metrics)
 
         info = {
@@ -428,23 +428,24 @@ class NBVODINEnv(gym.Env):
 
         return obs, float(reward), terminated, truncated, info
 
-    def _save_step_metrics(self, step_metrics):
-        """Дозаписывает метрики одного шага в общий CSV."""
-        import csv
-        self.log_dir.mkdir(parents=True, exist_ok=True)
-        file_exists = self.metrics_path.exists()
-        
-        keys = step_metrics.keys()
-        with open(self.metrics_path, 'a', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=keys)
-            if not file_exists or f.tell() == 0:
-                writer.writeheader()
-            writer.writerow(step_metrics)
-
     def _save_episode_metrics(self):
         """Вызывается в конце эпизода: обновляет историю и итоговый график."""
         self.episode_rewards_history.append(self.current_episode_reward)
         self.episode_p_hidden_history.append(self.current_episode_min_p)
+        
+        # Save all steps from this episode to training_metrics.csv
+        import csv
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        file_exists = self.metrics_path.exists()
+        
+        if self.episode_history:
+            keys = self.episode_history[0].keys()
+            with open(self.metrics_path, 'a', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=keys)
+                if not file_exists or f.tell() == 0:
+                    writer.writeheader()
+                for step_metrics in self.episode_history:
+                    writer.writerow(step_metrics)
         
         # Сохраняем PNG график всей истории
         self._save_summary_plot()

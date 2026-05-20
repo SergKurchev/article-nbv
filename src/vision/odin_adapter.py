@@ -228,11 +228,16 @@ class ODINAdapter:
         )
 
         # Прямой проход через модель
+        was_training = self.model.training
+        self.model.eval()
         try:
             outputs = self.model(batched_inputs)
         except Exception as e:
             logger.error(f"ODIN forward pass failed: {e}")
             return self._empty_result()
+        finally:
+            if was_training:
+                self.model.train()
 
         # Извлечение Coverage/NBV предсказаний
         prev_p_hidden = self.last_p_hidden
@@ -253,12 +258,14 @@ class ODINAdapter:
 
         # We also compute the scene embedding
         scene_emb = None
-        base_model = self.model.model.module if hasattr(self.model.model, "module") else self.model.model
-        last_outputs = getattr(base_model, "_last_outputs", None)
-        if last_outputs is not None and "query_features" in last_outputs:
-            q_feats = last_outputs["query_features"]  # Tensor (B, Q, D)
-            scene_emb = q_feats.mean(dim=1).detach().cpu().numpy().squeeze(0)  # (D,) array
-        else:
+        if hasattr(self.model, "model"):
+            base_model = self.model.model.module if hasattr(self.model.model, "module") else self.model.model
+            last_outputs = getattr(base_model, "_last_outputs", None)
+            if last_outputs is not None and "query_features" in last_outputs:
+                q_feats = last_outputs["query_features"]  # Tensor (B, Q, D)
+                scene_emb = q_feats.mean(dim=1).detach().cpu().numpy().squeeze(0)  # (D,) array
+
+        if scene_emb is None:
             scene_emb = np.zeros(256, dtype=np.float32)
 
         self.last_p_hidden = p_hidden
@@ -327,11 +334,16 @@ class ODINAdapter:
 
         # Прямой проход **с градиентами** через модель
         # Градиенты потекут только через те параметры, у которых requires_grad=True
+        was_training = self.model.training
+        self.model.eval()
         try:
             outputs = self.model(batched_inputs)
         except Exception as e:
             logger.error(f"ODIN RL forward pass failed: {e}")
             return self._empty_result_rl()
+        finally:
+            if was_training:
+                self.model.train()
 
         prev_p_hidden = self.last_p_hidden
 

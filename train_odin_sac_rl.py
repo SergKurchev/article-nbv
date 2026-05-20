@@ -180,8 +180,10 @@ class QNetwork(nn.Module):
         return x
 
     def forward(self, obs, action):
-        x1 = self._process_inputs(obs, action, self.scene_proj1)
-        x2 = self._process_inputs(obs, action, self.scene_proj2)
+        proj1 = self.scene_proj1 if self.use_scene_emb else None
+        proj2 = self.scene_proj2 if self.use_scene_emb else None
+        x1 = self._process_inputs(obs, action, proj1)
+        x2 = self._process_inputs(obs, action, proj2)
         return self.q1_mlp(x1), self.q2_mlp(x2)
 
 
