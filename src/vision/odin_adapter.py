@@ -480,9 +480,11 @@ class ODINAdapter:
             "current_camera_position": pos_t,
             "current_camera_quaternion": quat_t,
             "rl_mode": rl_mode,
-            # Required by odin_model for CLIP text encoding
+            # Required by odin_model inference path
             "all_classes": self._all_classes,
             "original_all_classes": self._all_classes,
+            "num_classes": self.num_classes,
+            "dataset_name": "scannet",  # not "scannetpp" — avoids special branch
         }
 
         if multi_scale_xyz is not None:
