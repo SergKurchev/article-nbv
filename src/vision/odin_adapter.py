@@ -99,12 +99,15 @@ class ODINAdapter:
         device: torch.device,
         image_size: int = 224,
         num_frames: int = 5,
+        num_classes: int = 24,
     ):
         self.model = model
         self.model.eval()
         self.device = device
         self.image_size = image_size
         self.num_frames = num_frames
+        self.num_classes = num_classes
+        self._all_classes = [f"class_{i}" for i in range(num_classes)]
 
         # Кэш для накопления кадров окна наблюдения
         self._frame_buffer: list[dict] = []
@@ -477,6 +480,9 @@ class ODINAdapter:
             "current_camera_position": pos_t,
             "current_camera_quaternion": quat_t,
             "rl_mode": rl_mode,
+            # Required by odin_model for CLIP text encoding
+            "all_classes": self._all_classes,
+            "original_all_classes": self._all_classes,
         }
 
         if multi_scale_xyz is not None:
@@ -603,6 +609,6 @@ def load_nbv_active_odin(
     model = model.to(device)
     model.eval()
 
-    adapter = ODINAdapter(model=model, device=device)
+    adapter = ODINAdapter(model=model, device=device, num_classes=num_classes)
     logger.info(f"NBVActiveODIN loaded from {weights_path} on {device}")
     return model, adapter
