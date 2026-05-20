@@ -1,13 +1,13 @@
 """
-train_odin_sac_rl.py — SAC training where NBV Head of ODIN is the behavioral policy.
+train_odin_sac_rl.py — Standard SAC: ActorMLP is both behavioral and learned policy.
 
 Architecture:
     PyBullet → RGB-D → ODIN backbone → scene features
                                            ↓
-        ActorMLP (learned SAC actor) ← obs_vec + scene_emb
-        ODIN NBV Head (behavioral)   → mean_action for exploration
-        Twin Q-critics               → Q(s, a)
-        Coverage Head                → p_hidden (reward signal, BCE supervised)
+        ActorMLP (behavioral + learned)  ← obs_vec + scene_emb
+        ODIN NBV Head                    → nbv_hint in obs_vec[15:18] only
+        Twin Q-critics                   → Q(s, a)
+        Coverage Head                    → p_hidden (reward signal, BCE supervised)
 
 Fix log (vs original):
   1. Actor mismatch — get_action_from_obs_vec used obs_vec hints (nbv_hint, euler_hint)
@@ -198,10 +198,13 @@ class QNetwork(nn.Module):
 
 class OdinSACAgent:
     """
-    SAC agent with:
-    - ActorMLP as the learned policy (for updates)
-    - ODIN NBV Head as behavioral policy (for exploration during rollout)
+    Standard SAC agent:
+    - ActorMLP as BOTH behavioral policy (rollout) AND learned policy (updates)
+    - ODIN NBV Head output injected into obs_vec[15:18] as nbv_hint feature
     - Twin Q-critics + auto entropy tuning
+
+    This eliminates the Q-extrapolation problem: critic is trained on ActorMLP
+    actions, actor maximizes Q in the region Q was actually trained on.
     """
 
     def __init__(
@@ -267,8 +270,10 @@ class OdinSACAgent:
 
     def get_action(self, obs: dict, adapter, deterministic: bool = False) -> tuple:
         """
-        Behavioral policy during rollout: ODIN NBV Head → mean_action.
-        Returns action, log_prob, obs_vec_full, coverage metrics.
+        Behavioral policy during rollout: ActorMLP → mean_action.
+        ODIN inference still runs to obtain scene_emb, p_hidden, instances_3d,
+        and to populate obs_vec[15:18] with the current NBV Head recommendation
+        (nbv_hint) so ActorMLP can use it as an input feature.
         """
         rgb = obs.get("_raw_rgb")
         depth = obs["image"][3] * 10.0
@@ -291,10 +296,16 @@ class OdinSACAgent:
             current_quat=cam_orn.astype(np.float32),
         )
 
-        nbv_pos = result["nbv_pos_t"]
-        nbv_quat = result["nbv_quat_t"]
-        euler = quat_to_euler_torch(nbv_quat)
-        mean_action = torch.cat([nbv_pos, euler])
+        # Build obs_vec_full — inject current NBV Head position as nbv_hint
+        obs_vec = obs["vector"].copy()
+        obs_vec[15:18] = result["nbv_pos_t"].detach().cpu().numpy()
+        scene_emb = result.get("scene_embedding", np.zeros(256, dtype=np.float32))
+        obs_vec_full = np.concatenate([obs_vec, scene_emb])
+
+        # ActorMLP is the behavioral policy — standard SAC, no mismatch
+        obs_vec_t = torch.FloatTensor(obs_vec_full).unsqueeze(0).to(self.device)
+        with torch.no_grad():
+            mean_action = self.actor_mlp(obs_vec_t).squeeze(0)
 
         std = self.log_std.exp().clamp(min=1e-4, max=2.0)
         dist = torch.distributions.Normal(mean_action, std)
@@ -308,10 +319,6 @@ class OdinSACAgent:
 
         action_np = action_t.detach().cpu().numpy().astype(np.float32)
         action_np = np.clip(action_np, config.ACTION_MIN, config.ACTION_MAX)
-
-        obs_vec = obs["vector"].copy()
-        scene_emb = result.get("scene_embedding", np.zeros(256, dtype=np.float32))
-        obs_vec_full = np.concatenate([obs_vec, scene_emb])
 
         return (
             action_np, log_prob,

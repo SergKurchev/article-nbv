@@ -290,9 +290,9 @@ query_features [B, Q=20, 256]
 
 ### 3.4 ActorMLP (SAC)
 
-**Задача:** Learned-политика для SAC-апдейтов из replay buffer.  
-Это именно та политика, которую обновляет SAC actor loss.  
-ODIN NBV Head при этом — только поведенческая (behavioral) политика при сборе.
+**Задача:** Единая политика SAC — и behavioral (сбор данных), и learned (апдейты).  
+Это стандартный SAC без mismatch: Q обучается на ActorMLP-действиях, актор максимизирует Q в той же области.  
+ODIN NBV Head при этом — источник `nbv_hint` в $v_t[15{:}18]$, доступного ActorMLP как входной признак.
 
 **Входные данные:** `obs_vec_full [B, 274]`
 
@@ -565,17 +565,19 @@ $$\gamma = 0.99, \quad \lambda = 0.95$$
 
 $$z_t,\; \hat{p}_t,\; \ell_t \;\leftarrow\; \text{ODIN}(I_t,\, D_t,\, T_t)$$
 
-$$s_t = [v_t \;\|\; z_t] \in \mathbb{R}^{274}$$
+$$v_t[15{:}18] \leftarrow \text{NBVHead\_pos}_t, \qquad s_t = [v_t \;\|\; z_t] \in \mathbb{R}^{274}$$
 
-где $v_t \in \mathbb{R}^{18}$ — вектор среды (поза, джоинты, delta\_p), $z_t \in \mathbb{R}^{256}$ — scene embedding из трансформера ODIN.
+где $v_t \in \mathbb{R}^{18}$ — вектор среды; NBV Head позиция инжектируется в $v_t[15{:}18]$ как `nbv_hint` — входной признак для ActorMLP.
 
 ---
 
-**2. Действие** (behavioral policy — NBV Head, **не** ActorMLP)
+**2. Действие** (behavioral policy = learned policy = **ActorMLP**)
 
-$$\mu_t = \text{NBVHead}(z_t,\;\text{pos}_t,\;\text{quat}_t), \qquad \varepsilon \sim \mathcal{N}(0, I)$$
+$$\mu_t = \text{ActorMLP}(s_t), \qquad \varepsilon \sim \mathcal{N}(0, I)$$
 
 $$a_t = \text{clip}\!\left(\mu_t + \varepsilon \cdot \sigma_t,\; a_{\min},\; a_{\max}\right)$$
+
+> Стандартный SAC: одна и та же сеть собирает данные и обновляется. Q обучается на ActorMLP-действиях — нет экстраполяции при actor update.
 
 ---
 
@@ -661,9 +663,8 @@ L = MSE(q1, y) + MSE(q2, y)
 critic_optimizer.step()
 ```
 
-**Внимание:** `action` в batch — это действия от **ODIN NBV Head** (behavioral policy),  
-но `next_action` в target — от **ActorMLP** (learned policy).  
-Это корректно для off-policy SAC.
+**Примечание:** `action` в batch и `next_action` в таргете — оба от **ActorMLP**.  
+Стандартный SAC: Q обучается на актуальных действиях политики, actor update не экстраполирует Q за пределы обучающего распределения.
 
 ---
 
@@ -764,18 +765,15 @@ obs = env.reset()
 adapter.reset()
 
 for step in range(MAX_STEPS):
-    # 1. Добавить кадр в буфер
+    # 1. ODIN inference — scene_emb, p_hidden, nbv_hint
     adapter.add_frame(rgb, depth, pose, K)
-
-    # 2. Получить действие от ODIN NBV Head (deterministic)
     result = adapter.infer_for_rl(pos, quat)
-    nbv_pos_t = result["nbv_pos_t"]
-    nbv_quat_t = result["nbv_quat_t"]
-    euler = quat_to_euler(nbv_quat_t)
-    mean_action = concat(nbv_pos_t, euler)
+    obs_vec[15:18] = result["nbv_pos_t"]          # inject nbv_hint
+    obs_vec_full = concat(obs_vec, result["scene_emb"])
 
-    action = mean_action  # deterministic=True → нет шума
-    action = clip(action, ACTION_MIN, ACTION_MAX)
+    # 2. ActorMLP deterministic action
+    mean_action = ActorMLP(obs_vec_full)
+    action = clip(mean_action, ACTION_MIN, ACTION_MAX)
 
     # 3. Шаг среды
     next_obs, reward, done, _ = env.step(action)
@@ -783,10 +781,7 @@ for step in range(MAX_STEPS):
     if done: break
 ```
 
-**Примечание:** При инференсе SAC использует ODIN NBV Head как политику (а не ActorMLP).  
-ActorMLP — это off-policy surrogate, используемый только для градиентных обновлений.  
-При инференсе правильнее было бы использовать ActorMLP с `deterministic=True`.  
-(Это потенциальная точка улучшения.)
+SAC инференс корректен: та же ActorMLP, что и при обучении, с `deterministic=True` (без шума).
 
 ### 8.2 PPO Inference
 
@@ -826,7 +821,7 @@ PPO-инференс корректен: та же PPOActorCritic, что и п�
 | ODIN Pixel Decoder | ❄️ Заморожен | То же |
 | ODIN Transformer Decoder (все блоки) | ❄️ Заморожен | То же |
 | Coverage Head | 🔥 Обучается (BCE) | Небольшая голова, self-labeled из среды |
-| NBV Head (SAC) | 🔥 Обучается (как behavioral) | Используется при сборе данных, обновляется через actor_optimizer |
+| NBV Head (SAC) | ❄️ Заморожен | Только источник nbv_hint в obs_vec[15:18]; больше не является behavioral policy |
 | NBV Head (PPO) | ❄️ Заморожен | В PPO не является политикой |
 | ActorMLP (SAC) | 🔥 Обучается | Learned policy для SAC updates |
 | QNetwork + Q_target (SAC) | 🔥 Обучается | Оценка Q-функции |
