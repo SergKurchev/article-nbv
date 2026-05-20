@@ -659,7 +659,7 @@ def main():
                 success_flag = 1
 
             # SAC updates — gradient_steps per env step (UTD ratio)
-            if len(replay_buffer) >= args.learning_starts and total_step % args.update_freq == 0:
+            if len(replay_buffer) >= max(args.learning_starts, args.batch_size) and total_step % args.update_freq == 0:
                 for _ in range(args.gradient_steps):
                     batch = replay_buffer.sample(args.batch_size)
                     c_loss = agent.update_critic(batch)

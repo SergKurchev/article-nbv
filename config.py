@@ -103,7 +103,7 @@ TOTAL_TIMESTEPS = 500000
 BATCH_SIZE = 64
 LEARNING_RATE = 3e-4
 BUFFER_SIZE = 10000
-LEARNING_STARTS = 500
+LEARNING_STARTS = 1000
 GRADIENT_STEPS = 4      # SAC gradient updates per env step (UTD ratio)
 
 # Absolute action space bounds (X, Y, Z, roll, pitch, yaw)
