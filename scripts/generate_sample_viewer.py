@@ -661,6 +661,8 @@ def main():
                     help="Max total points after downsampling (default 500000)")
     ap.add_argument("--stride", type=int, default=2,
                     help="Stride for pixel sampling (default 2 = every other pixel)")
+    ap.add_argument("--output", type=str, default=None,
+                    help="Output HTML file path (default: sample_path/visualization.html)")
     args = ap.parse_args()
 
     sample_path = Path(args.sample_path).resolve()
@@ -703,7 +705,13 @@ def main():
 
     html = build_html(pts, cameras, color_map, sample_name, stage)
 
-    out_path = sample_path / "visualization.html"
+    if args.output:
+        out_path = Path(args.output)
+    else:
+        out_path = sample_path / "visualization.html"
+
+    # Ensure parent directories exist
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html, encoding="utf-8")
 
     size_mb = out_path.stat().st_size / 1e6
