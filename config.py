@@ -61,7 +61,7 @@ TEXTURE_PATH = DATA_DIR / "objects" / "texture.png" # Common texture at root
 # Stage 1: Single object, no obstacles
 # Stage 2: Multiple objects (2-10), no obstacles
 # Stage 3: Multiple objects (2-10) + obstacles
-SCENE_STAGE = 3  # Options: 1, 2, 3
+SCENE_STAGE = 2  # Options: 1, 2, 3
 
 # Stage 2 & 3: Multi-object parameters
 MIN_OBJECTS = 2  # Minimum number of objects in multi-object scenes
@@ -89,7 +89,7 @@ OBJECT_SCALE_FACTOR = 0.5  # Scale factor for object size (1.0 = default size)
 OBSTACLE_SCALE_FACTOR = 1.5  # Scale factor for obstacle size (1.0 = default size)
 
 # Episode limits
-MAX_STEPS_PER_EPISODE = 5
+MAX_STEPS_PER_EPISODE = 25
 
 # Camera
 IMAGE_SIZE = 256 # Увеличено для лучшей работы ODIN
@@ -100,10 +100,10 @@ CAMERA_UP = [0.0, 0.0, 1.0]
 
 # --- RL Training (SAC) ---
 TOTAL_TIMESTEPS = 500000
-BATCH_SIZE = 128
-LEARNING_RATE = 1e-2
+BATCH_SIZE = 64
+LEARNING_RATE = 3e-4
 BUFFER_SIZE = 10000
-LEARNING_STARTS = 1000
+LEARNING_STARTS = 500
 
 # Absolute action space bounds (X, Y, Z, roll, pitch, yaw)
 ACTION_MIN = [0.2, -0.5, 0.0, -3.14, -3.14, -3.14]
