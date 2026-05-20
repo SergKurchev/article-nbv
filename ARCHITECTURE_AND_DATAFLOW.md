@@ -561,66 +561,65 @@ $$\gamma = 0.99, \quad \lambda = 0.95$$
 
 ### 6.1 Схема одного шага
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Шаг t                                │
-│                                                         │
-│  obs["image"] ─┐                                        │
-│  obs["vector"] ─┤                                       │
-│                 ▼                                       │
-│  adapter.add_frame(rgb, depth, pose, K)                 │
-│  result = adapter.infer_for_rl(pos, quat)               │
-│                 │                                       │
-│         ┌───────┴───────────────┐                       │
-│         ▼                       ▼                       │
-│    NBV Head (behavioral)   scene_emb [256]              │
-│    mean = [nbv_pos, euler]  p_hidden (float)            │
-│         │                   p_hidden_logit_t (Tensor)   │
-│         ▼                                               │
-│    Gaussian(mean, exp(log_std))                         │
-│    action_t = mean + ε·std  ← reparameterization       │
-│    action_np = clip(action_t.numpy(), ACTION_MIN/MAX)   │
-│                                                         │
-│    obs_vec_full = concat(obs["vector"], scene_emb)      │
-│    ← сохраняем для replay buffer                        │
-│                                                         │
-│  ════════════════════════════════════════               │
-│    env.step(action_np, instances_3d)                    │
-│    → next_obs, _env_rew, terminated, truncated          │
-│  ════════════════════════════════════════               │
-│                                                         │
-│  adapter.infer_for_rl(next_pos, next_quat)              │
-│    → next_p_hidden, next_scene_emb                      │
-│                                                         │
-│  delta_p_hidden = p_hidden - next_p_hidden              │
-│  rew_coverage = delta_p_hidden × 20.0                   │
-│                                                         │
-│  ── Coverage Head update (supervised) ──                │
-│  gt = 1.0 if num_hidden_objects > 0 else 0.0            │
-│  loss_cov = BCE_logits(p_hidden_logit_t, gt)            │
-│  coverage_optimizer.step()                              │
-│                                                         │
-│  ── Reward composition ──                               │
-│  reward = _env_rew                                      │
-│  if is_safe:                                            │
-│      reward += rew_coverage                             │
-│      reward += exploration_bonus(p_hidden)              │
-│                                                         │
-│  next_obs_vec_full = concat(next_obs["vector"],         │
-│                             next_scene_emb)             │
-│                                                         │
-│  replay_buffer.push(obs_vec_full, action_np,            │
-│                     reward, next_obs_vec_full, done)    │
-│                                                         │
-│  ── SAC update (если buffer ≥ learning_starts) ──       │
-│  batch = replay_buffer.sample(batch_size=64)            │
-│                                                         │
-│  critic_loss = update_critic(batch)     ← Twin Q-loss   │
-│  actor_loss, α_loss = update_actor_and_alpha(batch)     │
-│                        ← ActorMLP + α                   │
-│  soft_update_target()  ← τ=0.005                        │
-└─────────────────────────────────────────────────────────┘
-```
+**1. ODIN inference — текущий obs**
+
+$$z_t,\; \hat{p}_t,\; \ell_t \;\leftarrow\; \text{ODIN}(I_t,\, D_t,\, T_t)$$
+
+$$s_t = [v_t \;\|\; z_t] \in \mathbb{R}^{274}$$
+
+где $v_t \in \mathbb{R}^{18}$ — вектор среды (поза, джоинты, delta\_p), $z_t \in \mathbb{R}^{256}$ — scene embedding из трансформера ODIN.
+
+---
+
+**2. Действие** (behavioral policy — NBV Head, **не** ActorMLP)
+
+$$\mu_t = \text{NBVHead}(z_t,\;\text{pos}_t,\;\text{quat}_t), \qquad \varepsilon \sim \mathcal{N}(0, I)$$
+
+$$a_t = \text{clip}\!\left(\mu_t + \varepsilon \cdot \sigma_t,\; a_{\min},\; a_{\max}\right)$$
+
+---
+
+**3. Шаг среды**
+
+$$(o_{t+1},\; r^{\text{env}}) \;\leftarrow\; \text{env.step}(a_t)$$
+
+---
+
+**4. ODIN inference — следующий obs**
+
+$$z_{t+1},\; \hat{p}_{t+1} \;\leftarrow\; \text{ODIN}(o_{t+1}), \qquad s_{t+1} = [v_{t+1} \;\|\; z_{t+1}]$$
+
+---
+
+**5. Награда**
+
+$$r_t = r^{\text{env}} + 20\cdot\underbrace{(\hat{p}_t - \hat{p}_{t+1})}_{\Delta p_{\text{hidden}}} \cdot \mathbf{1}[\text{safe}] + r^{\text{expl}}(\hat{p}_t) \cdot \mathbf{1}[\text{safe}]$$
+
+---
+
+**6. Coverage Head update** (supervised, изолировано от RL)
+
+$$y_t = \mathbf{1}[\text{есть скрытые объекты}], \qquad \mathcal{L}_{\text{cov}} = \text{BCE}(\ell_t,\; y_t)$$
+
+> $\ell_t$ — сырой логит из шага 1; при вычислении $r_t$ берётся $\hat{p}_t = \sigma(\ell_t)\texttt{.detach()}$ — градиент не течёт в RL.
+
+---
+
+**7. Replay buffer**
+
+$$\mathcal{B} \;\leftarrow\; (s_t,\; a_t,\; r_t,\; s_{t+1},\; d_t)$$
+
+---
+
+**8. SAC update** (если $|\mathcal{B}| \geq N_{\text{start}}$, батч $(s, a, r, s', d) \sim \mathcal{B}$)
+
+$$y^Q = r + \gamma(1-d)\Bigl[\min_i Q_i^{\text{tgt}}(s', \tilde{a}') - \alpha \log\pi(\tilde{a}'|s')\Bigr], \quad \tilde{a}' \sim \text{ActorMLP}(s')$$
+
+$$\mathcal{L}_Q = \mathbb{E}\bigl[(Q_1(s,a) - y^Q)^2 + (Q_2(s,a) - y^Q)^2\bigr]$$
+
+$$\mathcal{L}_\pi = \mathbb{E}\bigl[\alpha\log\pi(\tilde{a}|s) - \min_i Q_i(s, \tilde{a})\bigr]$$
+
+$$\mathcal{L}_\alpha = \mathbb{E}\bigl[-\alpha\,(\log\pi(\tilde{a}|s) + \mathcal{H}_{\text{tgt}})\bigr], \qquad \theta^{\text{tgt}} \leftarrow \tau\,\theta + (1-\tau)\,\theta^{\text{tgt}}$$
 
 ### 6.2 Полный цикл SAC
 
@@ -672,50 +671,45 @@ critic_optimizer.step()
 
 ### 7.1 Схема одного шага в rollout
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                  Шаг t (в rollout)                      │
-│                                                         │
-│  Входное состояние: obs_vec_full (274,)                 │
-│  (из конца предыдущего шага или env.reset())            │
-│                                                         │
-│  ── Coverage Head update на текущем obs ──              │
-│  gt = 1.0 if num_hidden_objects > 0 else 0.0            │
-│  loss_cov = BCE_logits(p_hidden_logit, gt)              │
-│  coverage_optimizer.step()                              │
-│                                                         │
-│  ── PPO action ──                                       │
-│  action_np, log_prob, value = PPOActorCritic(obs_vec)   │
-│  action_np = clip(action_np, ACTION_MIN/MAX)            │
-│                                                         │
-│  ════════════════════════════════════════               │
-│  env.step(action_np, instances_3d от текущего ODIN)     │
-│  → next_obs, _env_rew, terminated, truncated            │
-│  ════════════════════════════════════════               │
-│                                                         │
-│  run_odin_step(next_obs)   ← с torch.no_grad()          │
-│  → next_scene_emb, next_p_hidden                        │
-│    next_p_hidden_logit (для следующего шага)            │
-│    next_instances_3d                                    │
-│                                                         │
-│  delta_p_hidden = p_hidden - next_p_hidden              │
-│  rew_coverage = delta_p_hidden × 20.0                   │
-│                                                         │
-│  reward = _env_rew                                      │
-│  if is_safe:                                            │
-│      reward += rew_coverage + exploration_bonus(p)      │
-│                                                         │
-│  rollout_buffer.push(obs_vec_full, action_np,           │
-│                      reward, value, log_prob, done)     │
-│                                                         │
-│  # Advance state                                        │
-│  obs_vec_full = concat(next_obs["vector"],              │
-│                        next_scene_emb)                  │
-│  p_hidden = next_p_hidden                               │
-│  p_hidden_logit = next_p_hidden_logit  ← для след.шага  │
-│  instances_3d = next_instances_3d                       │
-└─────────────────────────────────────────────────────────┘
-```
+**1. Coverage Head update** (до действия, на текущем $s_t$)
+
+$$y_t = \mathbf{1}[\text{есть скрытые объекты}], \qquad \mathcal{L}_{\text{cov}} = \text{BCE}(\ell_t,\; y_t)$$
+
+---
+
+**2. Действие** (PPOActorCritic — та же сеть, что и при обновлении)
+
+$$a_t,\; \log\pi_t,\; V_t \;\leftarrow\; \text{PPOActorCritic}(s_t)$$
+
+$$a_t^{\text{clip}} = \text{clip}(a_t,\; a_{\min},\; a_{\max})$$
+
+---
+
+**3. Шаг среды**
+
+$$(o_{t+1},\; r^{\text{env}}) \;\leftarrow\; \text{env.step}(a_t^{\text{clip}})$$
+
+---
+
+**4. ODIN inference — следующий obs** (без градиентов)
+
+$$z_{t+1},\; \hat{p}_{t+1},\; \ell_{t+1} \;\leftarrow\; \text{ODIN}(o_{t+1})\big|_{\text{no\_grad}}$$
+
+$$s_{t+1} = [v_{t+1} \;\|\; z_{t+1}]$$
+
+---
+
+**5. Награда**
+
+$$r_t = r^{\text{env}} + 20\cdot(\hat{p}_t - \hat{p}_{t+1}) \cdot \mathbf{1}[\text{safe}] + r^{\text{expl}}(\hat{p}_t) \cdot \mathbf{1}[\text{safe}]$$
+
+---
+
+**6. Rollout buffer**
+
+$$\mathcal{R} \;\leftarrow\; (s_t,\; a_t,\; r_t,\; V_t,\; \log\pi_t,\; d_t)$$
+
+Состояние переходит: $s_t \leftarrow s_{t+1}$, $\ell_t \leftarrow \ell_{t+1}$.
 
 ### 7.2 Полный цикл PPO
 
