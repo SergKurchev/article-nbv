@@ -703,6 +703,7 @@ def main():
                 f"p={p_hidden_mean:.3f}  col={collision_rate:.2f}  oob={oob_rate:.2f}  "
                 f"α={agent.alpha.item():.3f}  "
                 f"cL={c_loss:.3f}  aL={a_loss:.3f}  covL={avg_cov_loss:.3f}"
+                + _gpu_stats()
             )
 
         if total_step % args.save_freq == 0:
@@ -716,6 +717,24 @@ def main():
     csv_f.close()
     env.close()
     print(f"\n  Done! Best reward: {best_reward:.2f}. Output: {output_dir}")
+
+
+def _gpu_stats() -> str:
+    """Return a short GPU utilization string for logging, e.g. 'GPU=47% 1.3/16GB'."""
+    if not torch.cuda.is_available():
+        return ""
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+        h = pynvml.nvmlDeviceGetHandleByIndex(0)
+        util = pynvml.nvmlDeviceGetUtilizationRates(h).gpu
+        mem = pynvml.nvmlDeviceGetMemoryInfo(h)
+        used_gb = mem.used / 1024 ** 3
+        total_gb = mem.total / 1024 ** 3
+        return f"  GPU={util}% {used_gb:.1f}/{total_gb:.0f}GB"
+    except Exception:
+        used_gb = torch.cuda.memory_allocated() / 1024 ** 3
+        return f"  gpuMem={used_gb:.1f}GB"
 
 
 def _save(model, agent, path):
