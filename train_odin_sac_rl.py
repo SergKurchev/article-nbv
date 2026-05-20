@@ -414,6 +414,8 @@ def parse_args():
     p.add_argument("--buffer_size", type=int, default=config.BUFFER_SIZE)
     p.add_argument("--batch_size", type=int, default=config.BATCH_SIZE)
     p.add_argument("--learning_starts", type=int, default=config.LEARNING_STARTS)
+    p.add_argument("--gradient_steps", type=int, default=config.GRADIENT_STEPS,
+                   help="SAC gradient updates per env step (UTD ratio). 4 is safe and ~4x GPU utilization.")
     p.add_argument("--update_freq", type=int, default=1)
     p.add_argument("--grad_clip", type=float, default=1.0)
 
@@ -656,11 +658,12 @@ def main():
             if info.get("success", False):
                 success_flag = 1
 
-            # SAC updates
+            # SAC updates — gradient_steps per env step (UTD ratio)
             if len(replay_buffer) >= args.learning_starts and total_step % args.update_freq == 0:
-                batch = replay_buffer.sample(args.batch_size)
-                c_loss = agent.update_critic(batch)
-                a_loss, _ = agent.update_actor_and_alpha(batch)
+                for _ in range(args.gradient_steps):
+                    batch = replay_buffer.sample(args.batch_size)
+                    c_loss = agent.update_critic(batch)
+                    a_loss, _ = agent.update_actor_and_alpha(batch)
                 agent.soft_update_target()
 
             obs = next_obs

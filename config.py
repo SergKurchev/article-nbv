@@ -104,6 +104,7 @@ BATCH_SIZE = 64
 LEARNING_RATE = 3e-4
 BUFFER_SIZE = 10000
 LEARNING_STARTS = 500
+GRADIENT_STEPS = 4      # SAC gradient updates per env step (UTD ratio)
 
 # Absolute action space bounds (X, Y, Z, roll, pitch, yaw)
 ACTION_MIN = [0.2, -0.5, 0.0, -3.14, -3.14, -3.14]
