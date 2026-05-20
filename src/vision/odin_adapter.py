@@ -583,7 +583,18 @@ def load_nbv_active_odin(
     if "model" in state:
         state = state["model"]
 
-    missing, unexpected = model.load_state_dict(state, strict=False)
+    # Filter out size-mismatched keys (e.g. coverage_head/nbv_head trained with
+    # different in_dim). They will be randomly initialized and fine-tuned by RL.
+    model_state = model.state_dict()
+    filtered_state = {
+        k: v for k, v in state.items()
+        if k not in model_state or model_state[k].shape == v.shape
+    }
+    skipped = [k for k in state if k in model_state and model_state[k].shape != state[k].shape]
+    if skipped:
+        logger.warning(f"Skipped {len(skipped)} size-mismatched keys (will use random init): {skipped}")
+
+    missing, unexpected = model.load_state_dict(filtered_state, strict=False)
     if missing:
         logger.warning(f"Missing keys ({len(missing)}): {missing[:5]}...")
     if unexpected:
