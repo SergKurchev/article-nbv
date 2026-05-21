@@ -275,21 +275,8 @@ class OdinSACAgent:
         and to populate obs_vec[15:18] with the current NBV Head recommendation
         (nbv_hint) so ActorMLP can use it as an input feature.
         """
-        rgb = obs.get("_raw_rgb")
-        depth = obs["image"][3] * 10.0
         cam_pos = obs["vector"][:3]
         cam_orn = obs["vector"][3:7]
-
-        import pybullet as pb
-        R = np.array(pb.getMatrixFromQuaternion(cam_orn)).reshape(3, 3)
-        pose = np.eye(4, dtype=np.float32)
-        pose[:3, :3] = R
-        pose[:3, 3] = cam_pos
-        fx = fy = config.IMAGE_SIZE / 2.0
-        cx = cy = config.IMAGE_SIZE / 2.0
-
-        if rgb is not None:
-            adapter.add_frame(rgb, depth.astype(np.float32), pose, fx, fy, cx, cy)
 
         result = adapter.infer_for_rl(
             current_pos=cam_pos.astype(np.float32),
@@ -553,6 +540,7 @@ def main():
         obs, _ = env.reset()
         adapter.reset()
         obs["_raw_rgb"] = env.last_rgb
+        _add_obs_frame(obs, adapter)  # seed the frame buffer with the first observation
 
         ep_reward = 0.0
         ep_env_rew = 0.0
@@ -586,6 +574,10 @@ def main():
                 action_np,
                 info_from_adapter={"instances_3d": instances_3d, "original_xyz": original_xyz},
             )
+
+            # Add next frame BEFORE computing next_p_hidden so ODIN sees the new viewpoint
+            next_obs["_raw_rgb"] = env.last_rgb
+            _add_obs_frame(next_obs, adapter)
 
             # Compute next-step p_hidden for coverage reward
             with torch.no_grad():
@@ -638,7 +630,6 @@ def main():
             env.current_episode_reward += rew_coverage + rew_expl
             env.episode_history[-1]["cum_reward"] = env.current_episode_reward
 
-            next_obs["_raw_rgb"] = env.last_rgb
             done = terminated or truncated
             next_obs_vec = np.concatenate([next_obs["vector"], next_scene_emb])
 
@@ -718,6 +709,23 @@ def main():
     csv_f.close()
     env.close()
     print(f"\n  Done! Best reward: {best_reward:.2f}. Output: {output_dir}")
+
+
+def _add_obs_frame(obs: dict, adapter) -> None:
+    """Add one RGB-D frame from an env observation to the ODIN adapter frame buffer."""
+    import pybullet as pb
+    rgb = obs.get("_raw_rgb")
+    if rgb is None:
+        return
+    depth = obs["image"][3] * 10.0
+    cam_pos = obs["vector"][:3]
+    cam_orn = obs["vector"][3:7]
+    R = np.array(pb.getMatrixFromQuaternion(cam_orn)).reshape(3, 3)
+    pose = np.eye(4, dtype=np.float32)
+    pose[:3, :3] = R
+    pose[:3, 3] = cam_pos
+    fx = fy = cx = cy = config.IMAGE_SIZE / 2.0
+    adapter.add_frame(rgb, depth.astype(np.float32), pose, fx, fy, cx, cy)
 
 
 def _gpu_stats() -> str:
