@@ -620,12 +620,11 @@ def main():
             if is_oob:
                 ep_oob += 1
 
-            # Reward: env base + exploration bonus
-            # NOTE: rew_coverage (delta_p_hidden * REWARD_SCALE) is excluded —
-            # coverage head is randomly initialised so delta_p_hidden ≈ 0 always.
+            # Full reward: env + coverage + exploration bonuses
             reward = float(_env_rew)
             rew_expl = 0.0
             if not is_collision and not is_oob:
+                reward += rew_coverage
                 if p_hidden < config.REWARD_EXPLORATION_THRESHOLD:
                     rew_expl = config.REWARD_EXPLORATION_COMPLETE_BONUS
                 else:
