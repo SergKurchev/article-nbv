@@ -66,17 +66,30 @@ def quat_to_euler_torch(q: torch.Tensor) -> torch.Tensor:
 class ReplayBuffer:
     def __init__(self, capacity: int):
         self.buffer = deque(maxlen=capacity)
+        # Welford online mean/variance for reward normalization (level-4 stability)
+        self._rn = 0      # total pushes seen
+        self._rm = 0.0    # running mean
+        self._rM2 = 0.0   # running sum of squared deviations
 
     def push(self, obs_vec, action, reward, next_obs_vec, done):
         self.buffer.append((obs_vec, action, reward, next_obs_vec, done))
+        self._rn += 1
+        delta = reward - self._rm
+        self._rm += delta / self._rn
+        self._rM2 += delta * (reward - self._rm)
 
     def sample(self, batch_size: int):
         batch = random.sample(self.buffer, batch_size)
         obs, act, rew, next_obs, done = zip(*batch)
+        rew_t = torch.FloatTensor(np.array(rew)).unsqueeze(1)
+        # Normalize rewards: (r - mean) / (std + ε) so Q-values stay bounded
+        if self._rn > 1:
+            std = (self._rM2 / (self._rn - 1)) ** 0.5
+            rew_t = (rew_t - self._rm) / (std + 1e-8)
         return (
             torch.FloatTensor(np.array(obs)),
             torch.FloatTensor(np.array(act)),
-            torch.FloatTensor(np.array(rew)).unsqueeze(1),
+            rew_t,
             torch.FloatTensor(np.array(next_obs)),
             torch.FloatTensor(np.array(done)).unsqueeze(1),
         )
@@ -305,7 +318,7 @@ class OdinSACAgent:
             log_prob = dist.log_prob(action_t).sum()
 
         action_np = action_t.detach().cpu().numpy().astype(np.float32)
-        action_np = np.clip(action_np, config.ACTION_MIN, config.ACTION_MAX)
+        # NOTE: clipping happens in the training loop AFTER OOB detection, not here
 
         return (
             action_np, log_prob,
@@ -336,11 +349,13 @@ class OdinSACAgent:
             q1_next, q2_next = self.critic_target(next_obs, next_action)
             q_next = torch.min(q1_next, q2_next) - self.alpha * next_log_prob
             target_q = reward + self.gamma * (1 - done) * q_next
-            # Clamp Bellman targets to prevent Q-value explosion via bootstrap
-            target_q = torch.clamp(target_q, -50.0, 50.0)
+            # Clamp Bellman targets; with normalized rewards (std≈1, γ=0.99) ±100 is the
+            # theoretical maximum, so this only cuts true outliers
+            target_q = torch.clamp(target_q, -100.0, 100.0)
 
         q1, q2 = self.critic(obs, action)
-        critic_loss = F.mse_loss(q1, target_q) + F.mse_loss(q2, target_q)
+        # Huber loss: linear for large errors, avoids squaring outlier Q gaps (level-2 stability)
+        critic_loss = F.huber_loss(q1, target_q) + F.huber_loss(q2, target_q)
 
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
@@ -568,6 +583,14 @@ def main():
             )
             ep_p_hidden_sum += p_hidden
 
+            # OOB detection on unclipped action; clip AFTER so the env still gets a safe action
+            _amin3 = np.array(config.ACTION_MIN[:3], dtype=np.float32)
+            _amax3 = np.array(config.ACTION_MAX[:3], dtype=np.float32)
+            is_manual_oob = bool(
+                np.any(action_np[:3] < _amin3) or np.any(action_np[:3] > _amax3)
+            )
+            action_np = np.clip(action_np, config.ACTION_MIN, config.ACTION_MAX)
+
             current_gt_p_hidden = 1.0 if env.num_hidden_objects > 0 else 0.0
 
             next_obs, _env_rew, terminated, truncated, info = env.step(
@@ -605,8 +628,12 @@ def main():
                 ep_cov_losses.append(loss_cov.item())
 
             # Detect collision / OOB
+            # OOB: checked against unclipped action above; env saw clipped action so
+            # _env_rew won't contain PENALTY_OOB — we inject it manually.
             is_collision = _env_rew <= _coll_thresh
-            is_oob = (not is_collision) and (_env_rew <= _oob_thresh)
+            is_oob = is_manual_oob and not is_collision
+            if is_oob:
+                _env_rew = config.PENALTY_OOB
             if is_collision:
                 ep_collisions += 1
             if is_oob:

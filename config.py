@@ -89,7 +89,7 @@ OBJECT_SCALE_FACTOR = 0.5  # Scale factor for object size (1.0 = default size)
 OBSTACLE_SCALE_FACTOR = 1.5  # Scale factor for obstacle size (1.0 = default size)
 
 # Episode limits
-MAX_STEPS_PER_EPISODE = 25
+MAX_STEPS_PER_EPISODE = 10
 
 # Camera
 IMAGE_SIZE = 256 # Увеличено для лучшей работы ODIN

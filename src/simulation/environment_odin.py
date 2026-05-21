@@ -347,6 +347,7 @@ class NBVODINEnv(gym.Env):
         
         if collision:
             reward = config.PENALTY_COLLISION
+            terminated = True  # end episode immediately so agent learns to avoid obstacles
         elif self._is_out_of_bounds(obs["vector"][:3]):
             reward = config.PENALTY_OOB
         else:
