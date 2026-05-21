@@ -349,6 +349,8 @@ class OdinSACAgent:
             q1_next, q2_next = self.critic_target(next_obs, next_action)
             q_next = torch.min(q1_next, q2_next) - self.alpha * next_log_prob
             target_q = reward + self.gamma * (1 - done) * q_next
+            # Clamp Bellman targets to prevent Q-value explosion via bootstrap
+            target_q = torch.clamp(target_q, -50.0, 50.0)
 
         q1, q2 = self.critic(obs, action)
         critic_loss = F.mse_loss(q1, target_q) + F.mse_loss(q2, target_q)
@@ -618,12 +620,12 @@ def main():
             if is_oob:
                 ep_oob += 1
 
-            # Full reward: env + coverage + exploration bonuses
-            # FIX: previously rew_coverage was NOT pushed to replay buffer
+            # Reward: env base + exploration bonus
+            # NOTE: rew_coverage (delta_p_hidden * REWARD_SCALE) is excluded —
+            # coverage head is randomly initialised so delta_p_hidden ≈ 0 always.
             reward = float(_env_rew)
             rew_expl = 0.0
             if not is_collision and not is_oob:
-                reward += rew_coverage
                 if p_hidden < config.REWARD_EXPLORATION_THRESHOLD:
                     rew_expl = config.REWARD_EXPLORATION_COMPLETE_BONUS
                 else:
