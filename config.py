@@ -114,28 +114,29 @@ ACTION_MAX = [0.8, 0.5, 0.8, 3.14, 3.14, 3.14]
 # REWARD_SCALE: Множитель для разницы неопределенности покрытия (delta_p_hidden = p_hidden_t - p_hidden_{t+1}).
 # Поскольку изменение вероятности обнаружения скрытых объектов может быть небольшим на каждом шаге,
 # этот коэффициент масштабирует разницу, делая сигнал награды более выраженным для RL-агента.
-REWARD_SCALE = 5.0
+REWARD_SCALE = 10.0
 
 # PENALTY_OOB: Штраф за выход камеры робота за границы рабочей зоны (Out of Bounds).
-# Применяется, если целевые координаты x, y, z выходят за рамки ACTION_MIN и ACTION_MAX.
-PENALTY_OOB = -2.0
+# OOB теперь терминирует эпизод (done=True в train loop), поэтому штраф = разовый.
+# Увеличен до -5 чтобы Q(s, OOB) << Q(s, хорошее действие) и actor не эксплуатировал OOB.
+PENALTY_OOB = -5.0
 
 # PENALTY_COLLISION: Штраф за столкновение манипулятора с препятствием или целевым объектом.
 # Это критическое событие, поэтому штраф сделан более строгим, чтобы агент активно избегал коллизий.
-PENALTY_COLLISION = -3.0
+PENALTY_COLLISION = -5.0
 
 # Classifier confidence change scaling
 # REWARD_CLASSIFIER_SCALE: Коэффициент масштабирования изменения уверенности классификатора.
 REWARD_CLASSIFIER_SCALE = 5.0
 
 # Bonus reward for finding all targets
-REWARD_ALL_FOUND_BONUS = 10.0
+REWARD_ALL_FOUND_BONUS = 15.0
 
 # Bonus reward for correctly classifying all targets
 REWARD_SUCCESS_CLASSIFIED_BONUS = 20.0
 
-# Survival step reward
-REWARD_SURVIVAL = 0.1
+# Survival step reward — увеличен чтобы агент получал ощутимый сигнал за каждый шаг в bounds
+REWARD_SURVIVAL = 3.0
 
 # Exploration bonuses (based on p_hidden)
 REWARD_EXPLORATION_THRESHOLD = 0.05
@@ -143,8 +144,8 @@ REWARD_EXPLORATION_THRESHOLD = 0.05
 # REWARD_EXPLORATION_COMPLETE_BONUS
 REWARD_EXPLORATION_COMPLETE_BONUS = 5.0
 
-# REWARD_EXPLORATION_PARTIAL_FACTOR
-REWARD_EXPLORATION_PARTIAL_FACTOR = 0.5
+# REWARD_EXPLORATION_PARTIAL_FACTOR — увеличен: при p_hidden=0.9 даёт 0.9*3=2.7/ep vs OOB=-5
+REWARD_EXPLORATION_PARTIAL_FACTOR = 3.0
 
 # Evaluation & Callbacks
 EVAL_FREQ = 2000
