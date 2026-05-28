@@ -1,0 +1,211 @@
+\begin{thebibliography}{26}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Hornung et~al.(2013)Hornung, Wurm, Bennewitz, Stachniss, and
+  Burgard]{hornung2013octomap}
+A.~Hornung, K.~M. Wurm, M.~Bennewitz, C.~Stachniss, and W.~Burgard.
+\newblock {OctoMap}: An efficient probabilistic 3{D} mapping framework based on
+  octrees.
+\newblock \emph{Autonomous Robots}, 34\penalty0 (3):\penalty0 189--206, 2013.
+
+\bibitem[Chen et~al.(2024)Chen, Li, Wang, Xue, and Pang]{gennbv2024}
+X.~Chen, Q.~Li, T.~Wang, T.~Xue, and J.~Pang.
+\newblock {GenNBV}: Generalizable next-best-view policy for active 3{D}
+  reconstruction.
+\newblock In \emph{Proceedings of the IEEE/CVF Conference on Computer Vision
+  and Pattern Recognition (CVPR)}, 2024.
+\newblock URL \url{https://arxiv.org/abs/2402.16174}.
+
+\bibitem[Jin et~al.(2023)Jin, Chen, R\"{u}ckin, and
+  Popovi{\'c}]{uncertainty_driven}
+L.~Jin, X.~Chen, J.~R\"{u}ckin, and M.~Popovi{\'c}.
+\newblock Uncertainty-driven active vision for implicit scene reconstruction.
+\newblock In \emph{IEEE/RSJ International Conference on Intelligent Robots and
+  Systems (IROS)}, 2023.
+\newblock URL \url{https://arxiv.org/abs/2210.00978}.
+
+\bibitem[Pan et~al.(2022)Pan, Lai, Song, and Huang]{activenerf2022}
+X.~Pan, Z.~Lai, S.~Song, and G.~Huang.
+\newblock {ActiveNeRF}: Learning where to see with uncertainty estimation.
+\newblock In \emph{European Conference on Computer Vision (ECCV)}, 2022.
+\newblock URL \url{https://arxiv.org/abs/2209.08546}.
+
+\bibitem[Wang et~al.(2019)Wang, Carletti, Setti, Cristani, and {Del
+  Bue}]{wang2019active}
+Y.~Wang, M.~Carletti, F.~Setti, M.~Cristani, and A.~{Del Bue}.
+\newblock Active 3{D} classification of multiple objects in cluttered scenes.
+\newblock In \emph{Proceedings of the IEEE/CVF International Conference on
+  Computer Vision Workshops (ICCVW)}, 2019.
+
+\bibitem[Denzler and Brown(2002)]{denzler2002information}
+J.~Denzler and C.~M. Brown.
+\newblock Information theoretic sensor data selection for active object
+  recognition and state estimation.
+\newblock \emph{IEEE Transactions on Pattern Analysis and Machine
+  Intelligence}, 24\penalty0 (2):\penalty0 145--157, 2002.
+
+\bibitem[Scott et~al.(2003)Scott, Roth, and Rivest]{scott2003view}
+W.~R. Scott, G.~Roth, and J.-F. Rivest.
+\newblock View planning for automated three-dimensional object reconstruction
+  and inspection.
+\newblock \emph{ACM Computing Surveys}, 35\penalty0 (1):\penalty0 64--96, 2003.
+
+\bibitem[Korbach et~al.(2021)Korbach, Solbach, Memmesheimer, Paulus, and
+  Tsotsos]{nbv_rl_classification}
+C.~Korbach, M.~D. Solbach, R.~Memmesheimer, D.~Paulus, and J.~K. Tsotsos.
+\newblock Next-best-view estimation based on deep reinforcement learning for
+  active object classification, 2021.
+\newblock URL \url{https://arxiv.org/abs/2110.06766}.
+\newblock Code: \url{https://github.com/ckorbach/nbv\_rl}.
+
+\bibitem[Jain et~al.(2024)Jain, Katara, Gkanatsios, Harley, Sarch, Aggarwal,
+  Chaudhary, and Fragkiadaki]{odin2024}
+A.~Jain, P.~Katara, N.~Gkanatsios, A.~W. Harley, G.~Sarch, K.~Aggarwal,
+  V.~Chaudhary, and K.~Fragkiadaki.
+\newblock {ODIN}: A single model for 2{D} and 3{D} segmentation.
+\newblock In \emph{Proceedings of the IEEE/CVF Conference on Computer Vision
+  and Pattern Recognition (CVPR)}, 2024.
+\newblock URL \url{https://arxiv.org/abs/2401.02416}.
+
+\bibitem[Haarnoja et~al.(2018)Haarnoja, Zhou, Abbeel, and
+  Levine]{haarnoja2018sac}
+T.~Haarnoja, A.~Zhou, P.~Abbeel, and S.~Levine.
+\newblock Soft actor-critic: Off-policy maximum entropy deep reinforcement
+  learning with a stochastic actor.
+\newblock In \emph{Proceedings of the International Conference on Machine
+  Learning (ICML)}, pages 1861--1870, 2018.
+\newblock URL \url{https://arxiv.org/abs/1801.01290}.
+
+\bibitem[Vasquez-Gomez et~al.(2014)Vasquez-Gomez, Sucar, Murrieta-Cid, and
+  Lopez-Damian]{vasquez2014volumetric}
+J.~Vasquez-Gomez, L.~E. Sucar, R.~Murrieta-Cid, and E.~Lopez-Damian.
+\newblock Volumetric next-best-view planning for 3{D} object reconstruction
+  with positioning error.
+\newblock \emph{International Journal of Advanced Robotic Systems}, 11\penalty0
+  (10):\penalty0 159, 2014.
+
+\bibitem[Bircher et~al.(2016)Bircher, Kamel, Alexis, Oleynikova, and
+  Siegwart]{bircher2016receding}
+A.~Bircher, M.~Kamel, K.~Alexis, H.~Oleynikova, and R.~Siegwart.
+\newblock Receding horizon ``next-best-view'' planner for 3{D} exploration.
+\newblock In \emph{IEEE International Conference on Robotics and Automation
+  (ICRA)}, pages 1462--1468, 2016.
+\newblock URL \url{https://arxiv.org/abs/1602.00607}.
+
+\bibitem[Yamauchi(1997)]{yamauchi1997frontier}
+B.~Yamauchi.
+\newblock A frontier-based approach for autonomous exploration.
+\newblock In \emph{IEEE International Symposium on Computational Intelligence
+  in Robotics and Automation (CIRA)}, pages 146--151, 1997.
+
+\bibitem[Doumanoglou et~al.(2016)Doumanoglou, Kouskouridas, Malassiotis, and
+  Kim]{doumanoglou2016recovering}
+A.~Doumanoglou, R.~Kouskouridas, S.~Malassiotis, and T.-K. Kim.
+\newblock Recovering 6{D} object pose and predicting next-best-view in the
+  crowd.
+\newblock In \emph{Proceedings of the IEEE/CVF Conference on Computer Vision
+  and Pattern Recognition (CVPR)}, pages 3583--3592, 2016.
+\newblock URL \url{https://arxiv.org/abs/1512.07506}.
+
+\bibitem[Jayaraman and Grauman(2018)]{jayaraman2018learning}
+D.~Jayaraman and K.~Grauman.
+\newblock Learning to look around: Intelligently exploring unseen environments
+  for unknown tasks.
+\newblock In \emph{Proceedings of the IEEE/CVF Conference on Computer Vision
+  and Pattern Recognition (CVPR)}, pages 1238--1247, 2018.
+\newblock URL \url{https://arxiv.org/abs/1709.00507}.
+
+\bibitem[Carion et~al.(2020)Carion, Massa, Synnaeve, Usunier, Kirillov, and
+  Zagoruyko]{carion2020detr}
+N.~Carion, F.~Massa, G.~Synnaeve, N.~Usunier, A.~Kirillov, and S.~Zagoruyko.
+\newblock End-to-end object detection with transformers.
+\newblock In \emph{European Conference on Computer Vision (ECCV)}, pages
+  213--229, 2020.
+\newblock URL \url{https://arxiv.org/abs/2005.12872}.
+
+\bibitem[Cheng et~al.(2022)Cheng, Misra, Schwing, Kirillov, and
+  Girdhar]{mask2former2022}
+B.~Cheng, I.~Misra, A.~G. Schwing, A.~Kirillov, and R.~Girdhar.
+\newblock Masked-attention mask transformer for universal image segmentation.
+\newblock In \emph{Proceedings of the IEEE/CVF Conference on Computer Vision
+  and Pattern Recognition (CVPR)}, pages 1290--1299, 2022.
+\newblock URL \url{https://arxiv.org/abs/2112.01527}.
+
+\bibitem[Schult et~al.(2023)Schult, Engelmann, Hermans, Litany, Tang, and
+  Leibe]{schult2023mask3d}
+J.~Schult, F.~Engelmann, A.~Hermans, O.~Litany, S.~Tang, and B.~Leibe.
+\newblock {Mask3D}: Mask transformer for 3{D} instance segmentation.
+\newblock In \emph{IEEE International Conference on Robotics and Automation
+  (ICRA)}, 2023.
+\newblock URL \url{https://arxiv.org/abs/2210.03105}.
+
+\bibitem[He et~al.(2016)He, Zhang, Ren, and Sun]{he2016resnet}
+K.~He, X.~Zhang, S.~Ren, and J.~Sun.
+\newblock Deep residual learning for image recognition.
+\newblock In \emph{Proceedings of the IEEE/CVF Conference on Computer Vision
+  and Pattern Recognition (CVPR)}, pages 770--778, 2016.
+\newblock URL \url{https://arxiv.org/abs/1512.03385}.
+
+\bibitem[Vaswani et~al.(2017)Vaswani, Shazeer, Parmar, Uszkoreit, Jones, Gomez,
+  Kaiser, and Polosukhin]{vaswani2017attention}
+A.~Vaswani, N.~Shazeer, N.~Parmar, J.~Uszkoreit, L.~Jones, A.~N. Gomez,
+  {\L}.~Kaiser, and I.~Polosukhin.
+\newblock Attention is all you need.
+\newblock In \emph{Advances in Neural Information Processing Systems
+  (NeurIPS)}, pages 5998--6008, 2017.
+\newblock URL \url{https://arxiv.org/abs/1706.03762}.
+
+\bibitem[Shyam et~al.(2019)Shyam, Ja\'skowski, and Gomez]{shyam2019model}
+P.~Shyam, W.~Ja\'skowski, and F.~Gomez.
+\newblock Model-based active exploration.
+\newblock In \emph{Proceedings of the International Conference on Machine
+  Learning (ICML)}, pages 5779--5788, 2019.
+\newblock URL \url{https://arxiv.org/abs/1810.12162}.
+
+\bibitem[Sekar et~al.(2020)Sekar, Rybkin, Daniilidis, Abbeel, Hafner, and
+  Pathak]{sekar2020planning}
+R.~Sekar, O.~Rybkin, K.~Daniilidis, P.~Abbeel, D.~Hafner, and D.~Pathak.
+\newblock Planning to explore via self-supervised world models.
+\newblock In \emph{Proceedings of the International Conference on Machine
+  Learning (ICML)}, pages 8583--8592, 2020.
+\newblock URL \url{https://arxiv.org/abs/2005.05960}.
+
+\bibitem[Fujimoto et~al.(2018)Fujimoto, van Hoof, and Meger]{fujimoto2018td3}
+S.~Fujimoto, H.~van Hoof, and D.~Meger.
+\newblock Addressing function approximation error in actor-critic methods.
+\newblock In \emph{Proceedings of the International Conference on Machine
+  Learning (ICML)}, pages 1587--1596, 2018.
+\newblock URL \url{https://arxiv.org/abs/1802.09477}.
+
+\bibitem[Mittal et~al.(2023)Mittal, Yu, Yu, Liu, Rudin, Hoeller, Yuan, Singh,
+  Guo, Mazhar, Mandlekar, Babich, State, Hutter, and Garg]{mittal2023orbit}
+M.~Mittal, C.~Yu, Q.~Yu, J.~Liu, N.~Rudin, D.~Hoeller, J.~L. Yuan, R.~Singh,
+  Y.~Guo, H.~Mazhar, A.~Mandlekar, B.~Babich, G.~State, M.~Hutter, and A.~Garg.
+\newblock {ORBIT}: A unified simulation framework for interactive robot
+  learning environments.
+\newblock \emph{IEEE Robotics and Automation Letters}, 8\penalty0 (6):\penalty0
+  3740--3747, 2023.
+\newblock URL \url{https://arxiv.org/abs/2301.04195}.
+
+\bibitem[Tobin et~al.(2017)Tobin, Fong, Ray, Schneider, Zaremba, and
+  Abbeel]{tobin2017domain}
+J.~Tobin, R.~Fong, A.~Ray, J.~Schneider, W.~Zaremba, and P.~Abbeel.
+\newblock Domain randomization for transferring deep neural networks from
+  simulation to the real world.
+\newblock In \emph{IEEE/RSJ International Conference on Intelligent Robots and
+  Systems (IROS)}, pages 23--30, 2017.
+\newblock URL \url{https://arxiv.org/abs/1703.06907}.
+
+\bibitem[Zhao et~al.(2020)Zhao, Queralta, and Westerlund]{zhao2020sim2real}
+W.~Zhao, J.~P. Queralta, and T.~Westerlund.
+\newblock Sim-to-real transfer in deep reinforcement learning for robotics: A
+  survey.
+\newblock In \emph{IEEE Symposium Series on Computational Intelligence (SSCI)},
+  pages 737--744, 2020.
+\newblock URL \url{https://arxiv.org/abs/2009.13303}.
+
+\end{thebibliography}

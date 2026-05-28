@@ -41,7 +41,7 @@ def get_latest_rl_run_dir():
     runs.sort(key=lambda x: x.name)
     return runs[-1]
 
-ROBOT_URDF = "kuka_iiwa/model.urdf"
+ROBOT_URDF = str(BASE_DIR / "src" / "data" / "robot" / "ur_description" / "urdf" / "ur3.urdf")
 
 # --- Object Dataset Mode ---
 OBJECT_MODE = "primitives" # Choose "complex" or "primitives"
@@ -51,7 +51,12 @@ OBJECT_MODE = "primitives" # Choose "complex" or "primitives"
 if OBJECT_MODE == "complex":
     NUM_CLASSES = 5
 else:
-    NUM_CLASSES = 8
+    NUM_CLASSES = 5  # sphere, cube, pyramid, cylinder, hourglass
+
+# Active shape IDs from the primitives set used in scenes (0-indexed class ids)
+# Object_01=Sphere(0), Object_02=Cube(1), Object_04=Pyramid(3), Object_06=Cylinder(5), Object_07=Hourglass(6)
+ACTIVE_SHAPE_IDS = [0, 1, 3, 5, 6]
+SHAPE_NAMES = ["sphere", "cube", "pyramid", "cylinder", "hourglass"]
 
 OBJECTS_DIR = DATA_DIR / "objects" / OBJECT_MODE
 DATASET_DIR = BASE_DIR / "dataset" / OBJECT_MODE
@@ -71,14 +76,13 @@ MAX_OBJECTS = 10  # Maximum number of objects in multi-object scenes
 MIN_OBSTACLES = 3  # Minimum number of obstacles
 MAX_OBSTACLES = 7  # Maximum number of obstacles
 
-# Spatial distribution bounds for Stage 2 & 3
-# Objects and obstacles are placed within this volume
-SCENE_BOUNDS_X_MIN = 0.2  # Minimum X coordinate
-SCENE_BOUNDS_X_MAX = 0.8  # Maximum X coordinate
-SCENE_BOUNDS_Y_MIN = -0.3  # Minimum Y coordinate
-SCENE_BOUNDS_Y_MAX = 0.3  # Maximum Y coordinate
-SCENE_BOUNDS_Z_MIN = 0.15  # Minimum Z coordinate (above ground) - raised to prevent ground collision
-SCENE_BOUNDS_Z_MAX = 0.4  # Maximum Z coordinate
+# Spatial distribution bounds for Stage 2 & 3 — tuned for UR3 reach (~500mm)
+SCENE_BOUNDS_X_MIN = 0.15
+SCENE_BOUNDS_X_MAX = 0.40
+SCENE_BOUNDS_Y_MIN = -0.15
+SCENE_BOUNDS_Y_MAX = 0.15
+SCENE_BOUNDS_Z_MIN = 0.10
+SCENE_BOUNDS_Z_MAX = 0.30
 
 # Collision detection for object placement
 SCENE_MIN_OBJECT_DISTANCE = 0.15  # Reduced from 0.25 to allow more objects
@@ -106,9 +110,14 @@ BUFFER_SIZE = 10000
 LEARNING_STARTS = 1000
 GRADIENT_STEPS = 4      # SAC gradient updates per env step (UTD ratio)
 
-# Absolute action space bounds (X, Y, Z, roll, pitch, yaw)
-ACTION_MIN = [0.2, -0.5, 0.0, -3.14, -3.14, -3.14]
-ACTION_MAX = [0.8, 0.5, 0.8, 3.14, 3.14, 3.14]
+# Absolute action space bounds (X, Y, Z, roll, pitch, yaw) — UR3 reachable workspace
+ACTION_MIN = [0.10, -0.25, 0.10, -3.14159, -3.14159, -3.14159]
+ACTION_MAX = [0.50,  0.25, 0.45,  3.14159,  3.14159,  3.14159]
+
+# Hemisphere sampler constants for geometric NBV policy
+HEMI_CENTER = (0.28, 0.0, 0.20)   # center of UR3 object zone
+HEMI_RADIUS = 0.28                 # hemisphere radius (camera orbit distance)
+N_CANDIDATES = 64
 
 # Reward shaping
 # REWARD_SCALE: Множитель для разницы неопределенности покрытия (delta_p_hidden = p_hidden_t - p_hidden_{t+1}).
@@ -147,6 +156,10 @@ REWARD_EXPLORATION_COMPLETE_BONUS = 5.0
 # REWARD_EXPLORATION_PARTIAL_FACTOR — увеличен: при p_hidden=0.9 даёт 0.9*3=2.7/ep vs OOB=-5
 REWARD_EXPLORATION_PARTIAL_FACTOR = 3.0
 
+# Novelty reward (voxel-based new surface exploration)
+REWARD_NOVELTY_FACTOR = 1.0
+REWARD_NOVELTY_VOXEL_SIZE = 0.02
+
 # Evaluation & Callbacks
 EVAL_FREQ = 2000
 N_EVAL_EPISODES = 10
@@ -170,7 +183,7 @@ DATASET_CAMERA_PHI_MAX = 1.37  # Maximum elevation angle (pi/2 - 0.2 radians)
 DATASET_CAMERA_THETA_JITTER = 0.1  # Random jitter for azimuth angle (radians)
 
 # Target object position for dataset generation
-DATASET_TARGET_POS = [0.5, 0.0, 0.2]  # Match environment position
+DATASET_TARGET_POS = [0.28, 0.0, 0.20]  # Center of UR3 object zone
 
 # Color mapping for instance segmentation
 DATASET_COLOR_TARGET = [255, 0, 0]  # Red for target object

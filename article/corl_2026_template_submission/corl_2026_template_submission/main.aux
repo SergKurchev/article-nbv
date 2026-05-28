@@ -1,0 +1,142 @@
+\relax 
+\providecommand{\transparent@use}[1]{}
+\bibstyle{corlabbrvnat}
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyperFirstAtBeginDocument{\AtBeginDocument}
+\HyperFirstAtBeginDocument{\ifx\hyper@anchor\@undefined
+\global\let\oldnewlabel\newlabel
+\gdef\newlabel#1#2{\newlabelxx{#1}#2}
+\gdef\newlabelxx#1#2#3#4#5#6{\oldnewlabel{#1}{{#2}{#3}}}
+\AtEndDocument{\ifx\hyper@anchor\@undefined
+\let\newlabel\oldnewlabel
+\fi}
+\fi}
+\global\let\hyper@last\relax 
+\gdef\HyperFirstAtBeginDocument#1{#1}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\citation{hornung2013octomap,gennbv2024,uncertainty_driven,activenerf2022}
+\citation{wang2019active,denzler2002information,scott2003view,nbv_rl_classification}
+\citation{wang2019active}
+\citation{nbv_rl_classification}
+\citation{odin2024}
+\citation{haarnoja2018sac}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{section.1}\protected@file@percent }
+\citation{wang2019active}
+\citation{hornung2013octomap,vasquez2014volumetric,bircher2016receding}
+\citation{yamauchi1997frontier}
+\citation{gennbv2024}
+\citation{uncertainty_driven,activenerf2022}
+\citation{denzler2002information,scott2003view}
+\citation{doumanoglou2016recovering}
+\citation{jayaraman2018learning}
+\citation{wang2019active}
+\citation{nbv_rl_classification}
+\citation{carion2020detr}
+\citation{mask2former2022}
+\citation{schult2023mask3d}
+\citation{odin2024}
+\citation{he2016resnet}
+\citation{vaswani2017attention}
+\@writefile{toc}{\contentsline {section}{\numberline {2}Related Work}{2}{section.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}NBV for Scene Reconstruction}{2}{subsection.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2}NBV for Object Recognition}{2}{subsection.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.3}3D Instance Segmentation}{2}{subsection.2.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {3}Problem Formulation}{2}{section.3}\protected@file@percent }
+\newlabel{sec:formulation}{{3}{2}{Problem Formulation}{section.3}{}}
+\newlabel{eq:obs}{{1}{2}{Problem Formulation}{equation.3.1}{}}
+\citation{odin2024}
+\citation{he2016resnet}
+\citation{vaswani2017attention}
+\citation{shyam2019model,sekar2020planning}
+\@writefile{toc}{\contentsline {section}{\numberline {4}Method}{3}{section.4}\protected@file@percent }
+\newlabel{sec:method}{{4}{3}{Method}{section.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}System Overview}{3}{subsection.4.1}\protected@file@percent }
+\newlabel{sec:overview}{{4.1}{3}{System Overview}{subsection.4.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}ODIN as Perception Backbone}{3}{subsection.4.2}\protected@file@percent }
+\newlabel{sec:odin}{{4.2}{3}{ODIN as Perception Backbone}{subsection.4.2}{}}
+\newlabel{eq:scene_emb}{{2}{3}{ODIN as Perception Backbone}{equation.4.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}Coverage Head and Hidden-Object Probability}{3}{subsection.4.3}\protected@file@percent }
+\newlabel{sec:coverage}{{4.3}{3}{Coverage Head and Hidden-Object Probability}{subsection.4.3}{}}
+\newlabel{eq:coverage_head}{{3}{3}{Coverage Head and Hidden-Object Probability}{equation.4.3}{}}
+\newlabel{eq:bce}{{4}{3}{Coverage Head and Hidden-Object Probability}{equation.4.4}{}}
+\citation{fujimoto2018td3}
+\citation{fujimoto2018td3}
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces \textbf  {System overview.} RGB-D frames from the camera attached to the robot EE are processed by ODIN (frozen ❄). The Coverage Head (trainable 🔥) predicts $p_{\text  {hid}}$, used both as a shaped reward $r_\text  {cov}$ and as a feature $\Delta \hat  {p}$ in the observation vector. Scene-level query embeddings $\mathbf  {z}_t$ (256-D) augment the kinematic observation $(\mathbf  {p}_t,\mathbf  {q}_t,\mathbf  {j}_t)$ to form $\mathbf  {o}_t\!\in \!\mathbb  {R}^{270}$, the input to the SAC actor and twin Q-critics. The ActorMLP selects a 6-DoF target EE pose executed via analytical IK. The transition $(o,a,r,o')$ is stored in the replay buffer and used to update actor, critics, and entropy coefficient $\alpha $.}}{4}{figure.1}\protected@file@percent }
+\newlabel{fig:system}{{1}{4}{\textbf {System overview.} RGB-D frames from the camera attached to the robot EE are processed by ODIN (frozen ❄). The Coverage Head (trainable 🔥) predicts $\phid $, used both as a shaped reward $r_\text {cov}$ and as a feature $\Delta \hat {p}$ in the observation vector. Scene-level query embeddings $\mathbf {z}_t$ (256-D) augment the kinematic observation $(\mathbf {p}_t,\mathbf {q}_t,\mathbf {j}_t)$ to form $\mathbf {o}_t\!\in \!\mathbb {R}^{270}$, the input to the SAC actor and twin Q-critics. The ActorMLP selects a 6-DoF target EE pose executed via analytical IK. The transition $(o,a,r,o')$ is stored in the replay buffer and used to update actor, critics, and entropy coefficient $\alpha $}{figure.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.4}SAC View-Planning Policy}{4}{subsection.4.4}\protected@file@percent }
+\newlabel{sec:actor}{{4.4}{4}{SAC View-Planning Policy}{subsection.4.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.5}Geometrically-Structured Twin Q-Critic}{4}{subsection.4.5}\protected@file@percent }
+\newlabel{sec:critic}{{4.5}{4}{Geometrically-Structured Twin Q-Critic}{subsection.4.5}{}}
+\newlabel{eq:geo_feats}{{5}{4}{Geometrically-Structured Twin Q-Critic}{equation.4.5}{}}
+\citation{wang2019active}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces \textbf  {Network architectures.} (\emph  {Left}) ActorMLP maps the 270-D observation to a 6-D mean action; a shared log-std vector $\mathbf  {s}\in \mathbb  {R}^6$ controls stochasticity. (\emph  {Right}) The Q-critic decomposes the observation into semantic ($\mathbf  {f}_\text  {sem}$), geometric ($\mathbf  {f}_\text  {geo}$), safety ($\mathbf  {f}_\text  {oob}$), and kinematic features before the shared MLP head.}}{5}{figure.2}\protected@file@percent }
+\newlabel{fig:architectures}{{2}{5}{\textbf {Network architectures.} (\emph {Left}) ActorMLP maps the 270-D observation to a 6-D mean action; a shared log-std vector $\mathbf {s}\in \mathbb {R}^6$ controls stochasticity. (\emph {Right}) The Q-critic decomposes the observation into semantic ($\mathbf {f}_\text {sem}$), geometric ($\mathbf {f}_\text {geo}$), safety ($\mathbf {f}_\text {oob}$), and kinematic features before the shared MLP head}{figure.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.6}Reward Function}{5}{subsection.4.6}\protected@file@percent }
+\newlabel{sec:reward}{{4.6}{5}{Reward Function}{subsection.4.6}{}}
+\newlabel{eq:total_reward}{{7}{5}{Reward Function}{equation.4.7}{}}
+\newlabel{eq:rew_cov}{{9}{5}{Reward Function}{equation.4.9}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5}Geometric NBV Baseline}{5}{section.5}\protected@file@percent }
+\newlabel{sec:baseline}{{5}{5}{Geometric NBV Baseline}{section.5}{}}
+\citation{mittal2023orbit}
+\newlabel{eq:wang_original}{{11}{6}{Geometric NBV Baseline}{equation.5.11}{}}
+\newlabel{eq:geonbv}{{12}{6}{Geometric NBV Baseline}{equation.5.12}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6}Experiments}{6}{section.6}\protected@file@percent }
+\newlabel{sec:experiments}{{6}{6}{Experiments}{section.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.1}Simulation Environment}{6}{subsection.6.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.2}Object Set and Scene Configuration}{6}{subsection.6.2}\protected@file@percent }
+\newlabel{sec:scene}{{6.2}{6}{Object Set and Scene Configuration}{subsection.6.2}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces \textbf  {Example scene in NVIDIA Isaac Sim.} Five target objects (cube, cylinder, hourglass, pyramid, sphere) are placed among obstacle panels that create partial and full inter-object occlusions. The agent must plan a sequence of at most 10 viewpoints to detect and classify all objects.}}{6}{figure.3}\protected@file@percent }
+\newlabel{fig:scene}{{3}{6}{\textbf {Example scene in NVIDIA Isaac Sim.} Five target objects (cube, cylinder, hourglass, pyramid, sphere) are placed among obstacle panels that create partial and full inter-object occlusions. The agent must plan a sequence of at most 10 viewpoints to detect and classify all objects}{figure.3}{}}
+\citation{wang2019active}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.3}Evaluation Metrics}{7}{subsection.6.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.4}Implementation Details}{7}{subsection.6.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7}Results}{7}{section.7}\protected@file@percent }
+\newlabel{sec:results}{{7}{7}{Results}{section.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1}Quantitative Comparison}{7}{subsection.7.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces \textbf  {Quantitative comparison} on 100 evaluation episodes ($T_{\max }=10$, scenes with obstacles). $\uparrow $: higher is better; $\downarrow $: lower is better. Frames-to-Find / Frames-to-Classify set to $T_{\max }{+}1$ if not achieved. Best result in \textbf  {bold}.}}{7}{table.1}\protected@file@percent }
+\newlabel{tab:results}{{1}{7}{\textbf {Quantitative comparison} on 100 evaluation episodes ($T_{\max }=10$, scenes with obstacles). $\uparrow $: higher is better; $\downarrow $: lower is better. Frames-to-Find / Frames-to-Classify set to $T_{\max }{+}1$ if not achieved. Best result in \textbf {bold}}{table.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.2}Learning Curves}{7}{subsection.7.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.3}Qualitative Analysis}{7}{subsection.7.3}\protected@file@percent }
+\citation{tobin2017domain,zhao2020sim2real}
+\citation{tobin2017domain}
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces \textbf  {SAC-NBV training curves.} (\emph  {Left}) Mean episode reward per training step, smoothed over 50 episodes. (\emph  {Right}) Final $p_{\text  {hid}}$ per episode; a downward trend indicates the policy learns to uncover hidden objects.}}{8}{figure.4}\protected@file@percent }
+\newlabel{fig:learning_curves}{{4}{8}{\textbf {SAC-NBV training curves.} (\emph {Left}) Mean episode reward per training step, smoothed over 50 episodes. (\emph {Right}) Final $\phid $ per episode; a downward trend indicates the policy learns to uncover hidden objects}{figure.4}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces \textbf  {Qualitative episode (SAC-NBV).} Camera views at steps 1, 3, 6, 8, 10 (top row). The $p_{\text  {hid}}$ trajectory (bottom) shows the agent systematically reducing hidden-object uncertainty by manoeuvring around obstacles.}}{8}{figure.5}\protected@file@percent }
+\newlabel{fig:qualitative}{{5}{8}{\textbf {Qualitative episode (SAC-NBV).} Camera views at steps 1, 3, 6, 8, 10 (top row). The $\phid $ trajectory (bottom) shows the agent systematically reducing hidden-object uncertainty by manoeuvring around obstacles}{figure.5}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {8}Conclusion}{8}{section.8}\protected@file@percent }
+\newlabel{sec:conclusion}{{8}{8}{Conclusion}{section.8}{}}
+\bibdata{main}
+\bibcite{hornung2013octomap}{{1}{2013}{{Hornung et~al.}}{{Hornung, Wurm, Bennewitz, Stachniss, and Burgard}}}
+\bibcite{gennbv2024}{{2}{2024}{{Chen et~al.}}{{Chen, Li, Wang, Xue, and Pang}}}
+\bibcite{uncertainty_driven}{{3}{2023}{{Jin et~al.}}{{Jin, Chen, R\"{u}ckin, and Popovi{\'c}}}}
+\bibcite{activenerf2022}{{4}{2022}{{Pan et~al.}}{{Pan, Lai, Song, and Huang}}}
+\bibcite{wang2019active}{{5}{2019}{{Wang et~al.}}{{Wang, Carletti, Setti, Cristani, and {Del Bue}}}}
+\bibcite{denzler2002information}{{6}{2002}{{Denzler and Brown}}{{}}}
+\bibcite{scott2003view}{{7}{2003}{{Scott et~al.}}{{Scott, Roth, and Rivest}}}
+\bibcite{nbv_rl_classification}{{8}{2021}{{Korbach et~al.}}{{Korbach, Solbach, Memmesheimer, Paulus, and Tsotsos}}}
+\bibcite{odin2024}{{9}{2024}{{Jain et~al.}}{{Jain, Katara, Gkanatsios, Harley, Sarch, Aggarwal, Chaudhary, and Fragkiadaki}}}
+\bibcite{haarnoja2018sac}{{10}{2018}{{Haarnoja et~al.}}{{Haarnoja, Zhou, Abbeel, and Levine}}}
+\bibcite{vasquez2014volumetric}{{11}{2014}{{Vasquez-Gomez et~al.}}{{Vasquez-Gomez, Sucar, Murrieta-Cid, and Lopez-Damian}}}
+\bibcite{bircher2016receding}{{12}{2016}{{Bircher et~al.}}{{Bircher, Kamel, Alexis, Oleynikova, and Siegwart}}}
+\bibcite{yamauchi1997frontier}{{13}{1997}{{Yamauchi}}{{}}}
+\bibcite{doumanoglou2016recovering}{{14}{2016}{{Doumanoglou et~al.}}{{Doumanoglou, Kouskouridas, Malassiotis, and Kim}}}
+\bibcite{jayaraman2018learning}{{15}{2018}{{Jayaraman and Grauman}}{{}}}
+\bibcite{carion2020detr}{{16}{2020}{{Carion et~al.}}{{Carion, Massa, Synnaeve, Usunier, Kirillov, and Zagoruyko}}}
+\bibcite{mask2former2022}{{17}{2022}{{Cheng et~al.}}{{Cheng, Misra, Schwing, Kirillov, and Girdhar}}}
+\bibcite{schult2023mask3d}{{18}{2023}{{Schult et~al.}}{{Schult, Engelmann, Hermans, Litany, Tang, and Leibe}}}
+\bibcite{he2016resnet}{{19}{2016}{{He et~al.}}{{He, Zhang, Ren, and Sun}}}
+\bibcite{vaswani2017attention}{{20}{2017}{{Vaswani et~al.}}{{Vaswani, Shazeer, Parmar, Uszkoreit, Jones, Gomez, Kaiser, and Polosukhin}}}
+\bibcite{shyam2019model}{{21}{2019}{{Shyam et~al.}}{{Shyam, Ja\'skowski, and Gomez}}}
+\bibcite{sekar2020planning}{{22}{2020}{{Sekar et~al.}}{{Sekar, Rybkin, Daniilidis, Abbeel, Hafner, and Pathak}}}
+\bibcite{fujimoto2018td3}{{23}{2018}{{Fujimoto et~al.}}{{Fujimoto, van Hoof, and Meger}}}
+\bibcite{mittal2023orbit}{{24}{2023}{{Mittal et~al.}}{{Mittal, Yu, Yu, Liu, Rudin, Hoeller, Yuan, Singh, Guo, Mazhar, Mandlekar, Babich, State, Hutter, and Garg}}}
+\bibcite{tobin2017domain}{{25}{2017}{{Tobin et~al.}}{{Tobin, Fong, Ray, Schneider, Zaremba, and Abbeel}}}
+\bibcite{zhao2020sim2real}{{26}{2020}{{Zhao et~al.}}{{Zhao, Queralta, and Westerlund}}}
+\@writefile{toc}{\contentsline {section}{\numberline {A}SAC Objective Equations}{11}{appendix.A}\protected@file@percent }
+\newlabel{app:sac}{{A}{11}{SAC Objective Equations}{appendix.A}{}}
+\newlabel{eq:critic_loss}{{13}{11}{SAC Objective Equations}{equation.A.13}{}}
+\citation{haarnoja2018sac}
+\newlabel{eq:actor_loss}{{15}{12}{SAC Objective Equations}{equation.A.15}{}}
+\gdef\svg@ink@ver@settings{{\m@ne }{C:/Program Files/Inkscape/bin/inkscape}{1}}
+\gdef \@abspage@last{12}

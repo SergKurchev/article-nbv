@@ -1,0 +1,423 @@
+\documentclass{article}
+
+\usepackage{corl_2026}   % initial submission
+% \usepackage[final]{corl_2026}   % camera-ready
+% \usepackage[preprint]{corl_2026}  % arXiv pre-print
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{bm}
+\usepackage{graphicx}
+\usepackage{svg}
+\svgsetup{inkscapeexe={C:/Program Files/Inkscape/bin/inkscape}}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{makecell}
+\usepackage{xcolor}
+\usepackage{microtype}
+\usepackage{placeins}  % \FloatBarrier — keep floats within their section
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,fit,backgrounds}
+
+% Convenience macros
+\newcommand{\phid}{p_{\text{hid}}}
+\newcommand{\Vcal}{\mathcal{V}}
+\newcommand{\Rcal}{\mathcal{R}}
+\newcommand{\Dcal}{\mathcal{D}}
+
+% ============================================================
+\title{SAC-Guided Active Perception with 3D Segmentation\\
+       for Occluded Scene Understanding}
+
+% NOTE: author block is hidden in the initial submission (\usepackage{corl_2026}).
+%       Visible only with \usepackage[final]{corl_2026} or \usepackage[preprint]{corl_2026}.
+\author{
+  Sergei Kurchev$^{1}$ \And
+  Sofya Konstantinova$^{1}$ \And
+  Filipp Maksimov$^{1}$ \And
+  Nikita Kuzmin$^{1}$ \AND
+  Pavel Kuznetsov$^{2}$ \And
+  Dzmitry Tsetserukou$^{1}$ \\[4pt]
+  $^{1}$Intelligent Space Robotics Laboratory (ISR Lab) \\
+  $^{2}$Mobile Robotics Laboratory \\
+  Skolkovo Institute of Science and Technology, Moscow, Russia \\[2pt]
+  \texttt{\{Sergei.Kurchev,\ Sofya.Konstantinova,\ Filipp.Maksimov,\ Nikita.Kuzmin\}@skoltech.ru} \\
+  \texttt{Pavel.Kuznetsov@skoltech.ru,\ D.Tsetserukou@skoltech.ru}
+}
+
+% ============================================================
+\begin{document}
+\maketitle
+
+%------------------------------------------------------------
+\begin{abstract}
+We address the problem of next-best-view (NBV) selection in previously unseen environments, where an agent must efficiently segment and classify a set of target objects that may be partially or fully occluded. Prior approaches either rely on hand-crafted geometric visibility criteria requiring CAD models of known classes, or apply reinforcement learning to single-object scenarios without accounting for inter-object occlusions. We propose a system that jointly handles multiple objects under occlusion by coupling a Soft Actor-Critic (SAC) view-planning policy with ODIN --- a transformer-based 3D instance segmentation model --- as the perception backbone, which provides the agent with scene-level embeddings and an explicit estimate of hidden-object coverage that directly informs the policy.
+\end{abstract}
+
+\keywords{Next-Best-View Planning, Active Perception, Reinforcement Learning,
+          3D Instance Segmentation, Occlusion Handling}
+
+%============================================================
+\section{Introduction}
+%============================================================
+
+Autonomous robots operating in unstructured environments must perceive and classify objects even when those objects are partially or completely hidden by surrounding clutter. The \emph{next-best-view} (NBV) problem asks: given the current perceptual state of the scene, where should the camera move next to maximally reduce uncertainty? This question is central to robotic harvesting, warehouse picking, inspection, and search-and-rescue, where a limited number of camera views must suffice to identify all relevant targets.
+
+Existing NBV methods target two objectives. Reconstruction-oriented approaches~\citep{hornung2013octomap,gennbv2024,uncertainty_driven,activenerf2022} guide the camera to reduce uncertainty in a volumetric map or neural implicit scene representation; they are powerful but optimise for geometric completeness rather than semantic recognition. Recognition-oriented approaches~\citep{wang2019active,denzler2002information,scott2003view,nbv_rl_classification} plan views to increase classifier or segmentation confidence, but the dominant methods either rely on CAD models~\citep{wang2019active} or address only single-object settings~\citep{nbv_rl_classification} without the inter-object occlusions that arise in crowded workspaces.
+
+We address the intersection of these challenges: \emph{active multi-object segmentation and classification in previously unseen environments, without any CAD model, under realistic inter-object and obstacle occlusions}. Our key insight is that a modern transformer-based 3D instance segmentation model --- ODIN~\citep{odin2024} --- provides two complementary signals directly useful for RL-based view planning: (i)~\emph{scene-level semantic embeddings} from the model's object queries; and (ii)~a~\emph{coverage probability} $\phid\in[0,1]$ from a lightweight Coverage Head estimating whether hidden objects remain. We couple these with a Soft Actor-Critic (SAC)~\citep{haarnoja2018sac} policy, enabling the agent to learn adaptive, occlusion-aware viewpoint strategies from simulation experience.
+
+\textbf{Contributions.}
+\begin{enumerate}
+\item A system coupling SAC with ODIN as a frozen perception backbone for CAD-free, multi-object active segmentation under occlusion.
+\item A \emph{Coverage Head} that yields a dense, self-supervised reward signal $\phid$ via binary cross-entropy training, decoupled from the RL objective to prevent reward collapse.
+\item A geometrically-structured twin Q-critic that encodes spatial displacement, orientation change, and workspace safety as explicit input features, improving sample efficiency.
+\item A \emph{Geometric NBV baseline} adapting Wang et al.~\citep{wang2019active} to the CAD-free regime using ODIN perception.
+\item Simulation experiments in NVIDIA Isaac Sim with five primitive object classes and realistically occluding obstacles.
+\end{enumerate}
+
+%============================================================
+\section{Related Work}
+%============================================================
+
+\subsection{NBV for Scene Reconstruction}
+
+Information-theoretic methods~\citep{hornung2013octomap,vasquez2014volumetric,bircher2016receding} select views maximally reducing entropy in a volumetric occupancy map, with frontier-based exploration~\citep{yamauchi1997frontier} complementing this by driving toward the explored-unexplored boundary. Learning-based extensions train generalizable policies for active 3D reconstruction across object categories~\citep{gennbv2024} or guide exploration via NeRF-style rendering uncertainty~\citep{uncertainty_driven,activenerf2022}. These methods demonstrate strong reconstruction quality but optimise for geometric completeness rather than semantic recognition; views that are geometrically informative can be semantically redundant, motivating our recognition-focused formulation.
+
+\subsection{NBV for Object Recognition}
+
+Classical recognition-oriented NBV relied on CAD models to pre-compute expected per-view classifier gain~\citep{denzler2002information,scott2003view}. \citet{doumanoglou2016recovering} addressed multi-object recognition under clutter by jointly estimating 6-DoF pose and planning the next observation. \citet{jayaraman2018learning} applied deep RL to active visual exploration, one of the first works to cast active perception as an RL problem. \citet{wang2019active} formulate active multi-object classification in cluttered scenes using geometrically-distributed candidate viewpoints and a utility function integrating CAD-rendered visibility with classification confidence; we adapt their framework to the CAD-free regime (Section~\ref{sec:baseline}). RL-based NBV~\citep{nbv_rl_classification} has been applied mostly to single-object settings; our work extends it to the multi-object, obstacle-cluttered regime.
+
+\subsection{3D Instance Segmentation}
+
+DETR~\citep{carion2020detr} introduced set-based detection via a transformer decoder with learnable queries; Mask2Former~\citep{mask2former2022} extended this to panoptic segmentation; and Mask3D~\citep{schult2023mask3d} adapted masked cross-attention to 3D point clouds. ODIN~\citep{odin2024} fuses a 2D ResNet~\citep{he2016resnet} encoder with a transformer decoder~\citep{vaswani2017attention} and a depth back-projector, processing multi-frame RGB-D sequences into 3D instance segmentations. The per-query features $\mathbf{F}_Q \in \mathbb{R}^{N_q \times 256}$ provide a view-aggregated scene representation that we exploit both as RL observation and as Coverage Head input.
+
+%============================================================
+\FloatBarrier
+\section{Problem Formulation}
+\label{sec:formulation}
+%============================================================
+
+We model active multi-object segmentation as a finite-horizon POMDP $(\mathcal{S}, \mathcal{O}, \mathcal{A}, T, R, \gamma, T_{\max})$.
+
+\textbf{State} $s_t \in \mathcal{S}$: the complete scene configuration (object and obstacle poses, textures), not directly observed.
+
+\textbf{Observation} $\mathbf{o}_t \in \mathbb{R}^{270}$: a structured vector
+\begin{equation}
+  \mathbf{o}_t =
+    \bigl[\underbrace{\mathbf{p}_t}_{3},\;
+          \underbrace{\mathbf{q}_t}_{4},\;
+          \underbrace{\Delta p_t}_{1},\;
+          \underbrace{\mathbf{j}_t}_{6},\;
+          \underbrace{\mathbf{z}_t}_{256}
+    \bigr]^\top,
+  \label{eq:obs}
+\end{equation}
+where $\mathbf{p}_t \in \mathbb{R}^3$ and $\mathbf{q}_t \in \mathbb{R}^4$ are the end-effector (EE) position and orientation quaternion; $\Delta p_t = \phid^{(t-1)} - \phid^{(t)}$ is the per-step change in hidden-object probability; $\mathbf{j}_t \in \mathbb{R}^6$ are robot joint angles; and $\mathbf{z}_t \in \mathbb{R}^{256}$ is the scene-level embedding (Section~\ref{sec:coverage}).
+
+\textbf{Action} $\mathbf{a}_t = [x,y,z,\phi,\theta,\psi]^\top \in \mathbb{R}^6$: absolute target EE pose (position and Euler angles), executed via analytical inverse kinematics.
+
+\textbf{Reward} $r_t$: described in Section~\ref{sec:reward}.
+
+\textbf{Episode horizon}: $T_{\max} = 10$ steps; early termination on successful classification of all objects or on collision.
+
+%============================================================
+\FloatBarrier
+\section{Method}
+\label{sec:method}
+%============================================================
+
+\subsection{System Overview}
+\label{sec:overview}
+
+Figure~\ref{fig:system} illustrates the full pipeline. A sliding window of up to five posed RGB-D frames is processed by the ODIN backbone, yielding (i)~3D instance segmentation results, (ii)~a scene-level embedding $\mathbf{z}_t$, and (iii)~the hidden-object probability $\phid^{(t)}$ from the Coverage Head. These signals are composed into the observation vector~\eqref{eq:obs} and fed to the ActorMLP, which samples a 6-DoF target EE pose. The pose is executed via IK; ODIN processes the resulting next frame to yield $\phid^{(t+1)}$, from which the coverage reward $r_\text{cov}$ is computed. The transition tuple is stored in a replay buffer and used to update the actor, twin Q-critics, and entropy coefficient.
+
+\begin{figure*}[t]
+  \centering
+  \includesvg[width=\textwidth]{Figure1}
+  \caption{\textbf{System overview.} RGB-D frames from the camera attached to the robot EE are processed by ODIN (frozen ❄). The Coverage Head (trainable 🔥) predicts $\phid$, used both as a shaped reward $r_\text{cov}$ and as a feature $\Delta\hat{p}$ in the observation vector. Scene-level query embeddings $\mathbf{z}_t$ (256-D) augment the kinematic observation $(\mathbf{p}_t,\mathbf{q}_t,\mathbf{j}_t)$ to form $\mathbf{o}_t\!\in\!\mathbb{R}^{270}$, the input to the SAC actor and twin Q-critics. The ActorMLP selects a 6-DoF target EE pose executed via analytical IK. The transition $(o,a,r,o')$ is stored in the replay buffer and used to update actor, critics, and entropy coefficient $\alpha$.}
+  \label{fig:system}
+\end{figure*}
+
+\subsection{ODIN as Perception Backbone}
+\label{sec:odin}
+
+We use ODIN~\citep{odin2024}, fine-tuned on a multi-view RGB-D dataset collected within the same Isaac Sim environment, as a frozen perception backbone during RL training. ODIN processes up to $N_f = 5$ posed RGB-D frames through a 2D ResNet encoder~\citep{he2016resnet}, a multi-scale feature pyramid, a 3D back-projector (converting depth and camera pose to metric point clouds), and a transformer decoder~\citep{vaswani2017attention} with $N_q = 20$ learnable object queries. The decoder outputs per-query feature vectors $\mathbf{F}_Q \in \mathbb{R}^{N_q \times 256}$ encoding the observed instances in a view-aggregated 3D representation.
+
+\textbf{Scene embedding.} We derive a global scene descriptor by mean-pooling over queries:
+\begin{equation}
+  \mathbf{z}_t = \frac{1}{N_q}\sum_{i=1}^{N_q} \mathbf{F}_Q^{(i)} \in \mathbb{R}^{256}.
+  \label{eq:scene_emb}
+\end{equation}
+This embedding captures the current understanding of scene content --- object layouts, occupancies, and co-occurrence patterns --- without requiring class labels.
+
+\subsection{Coverage Head and Hidden-Object Probability}
+\label{sec:coverage}
+
+We attach a Coverage Head to the ODIN transformer decoder to predict the probability $\phid^{(t)} \in [0,1]$ that one or more target objects remain hidden at step $t$. The head applies a two-layer MLP to the flattened query features:
+\begin{equation}
+  \ell_t = \mathbf{W}_2\,\mathrm{ReLU}\!\bigl(\mathbf{W}_1\,\mathrm{vec}(\mathbf{F}_Q^{(t)}) + \mathbf{b}_1\bigr) + b_2,
+  \qquad \phid^{(t)} = \sigma(\ell_t),
+  \label{eq:coverage_head}
+\end{equation}
+where $\mathrm{vec}(\mathbf{F}_Q)\in\mathbb{R}^{5120}$, $\mathbf{W}_1\in\mathbb{R}^{128\times 5120}$, $\mathbf{W}_2\in\mathbb{R}^{1\times 128}$. Training uses a self-supervised binary cross-entropy loss with a label derived from the simulator:
+\begin{equation}
+  \mathcal{L}_\text{cov} = -y_t\log\sigma(\ell_t) - (1 - y_t)\log(1 - \sigma(\ell_t)),
+  \qquad y_t = \mathbf{1}[\text{hidden objects remain at step }t].
+  \label{eq:bce}
+\end{equation}
+\emph{Decoupling from RL.} The coverage reward $r_\text{cov}$ is computed from $\phid^{(t)} = \sigma(\ell_t)\texttt{.detach()}$; the RL gradient is blocked from flowing into the Coverage Head, preventing representation collapse. This is related to intrinsic exploration rewards~\citep{shyam2019model,sekar2020planning}, with the key distinction that our signal is grounded in semantic coverage estimated from the segmentation backbone rather than a separately learned world model.
+
+\subsection{SAC View-Planning Policy}
+\label{sec:actor}
+
+We parameterise the policy as a diagonal Gaussian $\pi_\phi(\mathbf{a} \mid \mathbf{o}) = \mathcal{N}(\bm{\mu}_\phi(\mathbf{o}),\,\mathrm{diag}(\bm{\sigma}^2))$, where $\bm{\mu}_\phi$ is the \textbf{ActorMLP}:
+\[
+  \mathbb{R}^{270} \xrightarrow{\text{Linear-LN-ReLU}} \mathbb{R}^{256} \xrightarrow{\text{Linear-LN-ReLU}} \mathbb{R}^{256} \xrightarrow{\text{Linear}} \mathbb{R}^{6}.
+\]
+The log-standard-deviation $\mathbf{s}\in\mathbb{R}^6$ is an independently optimised parameter shared across states, with $\bm{\sigma} = \mathrm{clamp}(e^{\mathbf{s}}, 10^{-4}, 2)$. The same network serves as both behavioral and learned policy, eliminating the distribution mismatch arising from separate surrogate policies~\citep{fujimoto2018td3}.
+
+\subsection{Geometrically-Structured Twin Q-Critic}
+\label{sec:critic}
+
+We decompose the Q-network input into four feature groups:
+
+\textbf{(i) Semantic features.} The scene embedding is projected: $\mathbf{f}_\text{sem} = g_\psi(\mathbf{z}_t) \in \mathbb{R}^{64}$ via a 2-layer MLP.
+
+\textbf{(ii) Geometric features.} Let $\Delta\mathbf{p} = \mathbf{a}_{1:3} - \mathbf{p}_t$:
+\begin{equation}
+  \mathbf{f}_\text{geo} = \Bigl[
+    \Delta\mathbf{p},\;
+    \mathbf{a}_{4:6} - \tilde{\bm{\alpha}}_t,\;
+    \|\Delta\mathbf{p}\|,\;
+    \tfrac{\Delta\mathbf{p}}{\|\Delta\mathbf{p}\|+\varepsilon}
+  \Bigr] \in \mathbb{R}^{10}.
+  \label{eq:geo_feats}
+\end{equation}
+
+\textbf{(iii) Workspace safety features.} Explicit over-bound penalties:
+\begin{equation}
+  \mathbf{f}_\text{oob} = \bigl[
+    \mathrm{ReLU}(\mathbf{a}_{\min} - \mathbf{a}_{1:3}),\;\;
+    \mathrm{ReLU}(\mathbf{a}_{1:3} - \mathbf{a}_{\max})
+  \bigr] \in \mathbb{R}^{6}.
+\end{equation}
+
+\textbf{(iv) Kinematic state.} Joint angles $\mathbf{j}_t \in \mathbb{R}^6$ and coverage change $\Delta p_t \in \mathbb{R}$.
+
+The combined vector $\mathbf{x} = [\mathbf{f}_\text{sem};\, \mathbf{f}_\text{geo};\, \mathbf{f}_\text{oob};\, \Delta p_t;\, \mathbf{j}_t] \in \mathbb{R}^{87}$ is fed to a 3-layer MLP. Two independent copies form the twin critics (clipped double-Q trick~\citep{fujimoto2018td3}).
+
+\begin{figure}[htbp]
+  \centering
+  \rule{0.92\textwidth}{6cm}   % <<< PLACEHOLDER — replace with architecture diagram
+  \caption{\textbf{Network architectures.} (\emph{Left}) ActorMLP maps the 270-D observation to a 6-D mean action; a shared log-std vector $\mathbf{s}\in\mathbb{R}^6$ controls stochasticity. (\emph{Right}) The Q-critic decomposes the observation into semantic ($\mathbf{f}_\text{sem}$), geometric ($\mathbf{f}_\text{geo}$), safety ($\mathbf{f}_\text{oob}$), and kinematic features before the shared MLP head.}
+  \label{fig:architectures}
+\end{figure}
+
+\subsection{Reward Function}
+\label{sec:reward}
+
+The total reward at step $t$ is:
+\begin{equation}
+  r_t = r_\text{env} + \mathbf{1}_\text{safe} \cdot \bigl(r_\text{cov} + r_\text{expl}\bigr),
+  \label{eq:total_reward}
+\end{equation}
+where $\mathbf{1}_\text{safe} = 0$ if the step ends in a collision or workspace violation.
+
+\textbf{Environment reward:}
+\begin{equation}
+  r_\text{env} = \begin{cases}
+    -5  & \text{collision with obstacle or target object}, \\
+    -5  & \text{out-of-bounds action} \\
+    \lambda_c\,\Delta \bar{c}_t + r_\text{found} + r_\text{class} + 3 & \text{otherwise},
+  \end{cases}
+\end{equation}
+where $\Delta\bar{c}_t$ is the per-step increase in mean ODIN classification confidence ($\lambda_c = 5$); $r_\text{found} = 15$ is a one-time bonus on first detection of all objects; and $r_\text{class} = 20$ triggers success.
+
+\textbf{Coverage reward:}
+\begin{equation}
+  r_\text{cov} = \bigl(\phid^{(t)} - \phid^{(t+1)}\bigr) \cdot \lambda_\text{cov},
+  \qquad \lambda_\text{cov} = 10.
+  \label{eq:rew_cov}
+\end{equation}
+
+\textbf{Exploration bonus:}
+\begin{equation}
+  r_\text{expl} = \begin{cases}
+    \beta_\text{full} = 5 & \phid^{(t)} < 0.05, \\
+    (1 - \phid^{(t)}) \cdot \beta_\text{partial},\;\; \beta_\text{partial} = 3 & \text{otherwise}.
+  \end{cases}
+\end{equation}
+
+Rewards stored in the replay buffer are normalised online using a Welford running mean and variance to stabilise Q-learning under large sparse bonuses. Full SAC objective equations are given in Appendix~\ref{app:sac}.
+
+%============================================================
+\FloatBarrier
+\section{Geometric NBV Baseline}
+\label{sec:baseline}
+%============================================================
+
+To isolate the contribution of learned adaptive view selection, we implement a non-learning baseline following the design of~\citet{wang2019active} but removing the CAD model requirement.
+
+\textbf{Candidate viewpoints.} We define $N = 12$ viewpoints $\mathcal{V} = \{v_1, \ldots, v_N\}$ distributed uniformly on a hemisphere centred on the workspace using the Fibonacci sphere algorithm.
+
+\textbf{Wang et al.\ original criterion.}
+The next viewpoint maximises expected per-object classification gain weighted by CAD-rendered visibility:
+\begin{equation}
+  v^*_t = \arg\max_{v \in \mathcal{V} \setminus \mathcal{V}_t}
+    \sum_{k=1}^K \mathrm{vis}_\text{CAD}(v, k) \cdot (1 - c_k^{(t)}),
+  \label{eq:wang_original}
+\end{equation}
+where $c_k^{(t)}$ is ODIN's confidence for object $k$ and $\mathrm{vis}_\text{CAD}(v, k)$ is pre-computed by rendering the object's CAD model.
+
+\textbf{Our CAD-free adaptation.}
+We replace the visibility term with a geometric diversity criterion:
+\begin{equation}
+  v^*_t = \arg\max_{v \in \mathcal{V} \setminus \mathcal{V}_t}
+    \underbrace{\min_{v' \in \mathcal{V}_t} \arccos\!\bigl(\hat{v} \cdot \hat{v}'\bigr)}_{\text{angular diversity}}
+    \cdot\; \underbrace{(1 - \hat{c}_t)}_{\text{confidence residual}},
+  \label{eq:geonbv}
+\end{equation}
+where $\hat{v} = v/\|v\|$ and $\hat{c}_t$ is the mean classification confidence over detected objects. This avoids revisiting similar vantage points and up-weights exploration when classification remains uncertain.
+
+ODIN is used identically to our full method for all perception, segmentation, and confidence estimation. The sole difference from SAC-NBV is that the target pose is determined by~\eqref{eq:geonbv} rather than the learned policy.
+
+%============================================================
+\FloatBarrier
+\section{Experiments}
+\label{sec:experiments}
+%============================================================
+
+\subsection{Simulation Environment}
+
+All experiments are conducted in \textbf{NVIDIA Isaac Sim}~\citep{mittal2023orbit} with a UR3 manipulator. An RGB-D camera is rigidly attached to the end-effector, producing $256 \times 256$ images with a $60^\circ$ field of view and metric depth. Scenes are generated procedurally at the start of each episode; the agent has no prior knowledge of object positions.
+
+\subsection{Object Set and Scene Configuration}
+\label{sec:scene}
+
+We evaluate on five primitive shape classes: \textbf{cube}, \textbf{cylinder}, \textbf{hourglass}, \textbf{pyramid}, and \textbf{sphere}. Each object instance is assigned one of three textures (fully red, red-green gradient, fully green) from a ripeness colour scheme, introducing intra-class visual variation. Scenes contain a variable number of target objects and grey obstacle panels placed at random non-overlapping positions within the workspace, producing realistic inter-object and object-obstacle occlusions.
+
+\begin{figure}[htbp]
+  \centering
+  \rule{0.92\textwidth}{5cm}   % <<< PLACEHOLDER — replace with IsaacSim scene screenshot
+  \caption{\textbf{Example scene in NVIDIA Isaac Sim.} Five target objects (cube, cylinder, hourglass, pyramid, sphere) are placed among obstacle panels that create partial and full inter-object occlusions. The agent must plan a sequence of at most 10 viewpoints to detect and classify all objects.}
+  \label{fig:scene}
+\end{figure}
+
+\subsection{Evaluation Metrics}
+
+We report the following metrics, averaged over 100 evaluation episodes:
+\begin{itemize}
+  \item \textbf{Objects Found} (\%, $\uparrow$): fraction of target objects detected by ODIN at least once.
+  \item \textbf{Frames-to-Find} ($\downarrow$): steps until all objects are detected. Set to $T_{\max}+1$ if not achieved.
+  \item \textbf{Frames-to-Classify} ($\downarrow$): steps until all objects are correctly classified. Set to $T_{\max}+1$ if not achieved.
+  \item $\phid$ \textbf{(final)} ($\downarrow$): Coverage Head output at the last episode step.
+  \item \textbf{Success Rate} (\%, $\uparrow$): fraction of episodes where all objects are classified before $T_{\max}$.
+  \item \textbf{Collision Rate} (\%, $\downarrow$): fraction of steps resulting in a collision.
+  \item \textbf{Uncertainty} ($\downarrow$): mean epistemic uncertainty (MC-dropout std) over classified objects at episode end.
+\end{itemize}
+
+\subsection{Implementation Details}
+
+The ODIN backbone is fine-tuned on a multi-view RGB-D dataset collected in the same Isaac Sim environment (same object classes and scene configurations), then kept frozen throughout RL training. The Coverage Head is trained jointly with SAC via separate optimisers to maintain the gradient decoupling described in Section~\ref{sec:coverage}. SAC-NBV is trained for 200\,000 environment steps. Key hyperparameters: $\gamma = 0.99$, $\tau = 0.005$, batch size 64, replay buffer capacity 10\,000, learning rate $10^{-4}$ (actor) and $3\times10^{-4}$ (critic), UTD ratio~4, LEARNING\_STARTS~1000 (see Appendix~\ref{app:sac}).
+
+%============================================================
+\FloatBarrier
+\section{Results}
+\label{sec:results}
+%============================================================
+
+\subsection{Quantitative Comparison}
+
+Table~\ref{tab:results} reports the main quantitative comparison across three methods over 100 evaluation episodes. \emph{Values to be added upon completion of training runs.}
+
+\begin{table}[htbp]
+\centering
+\caption{\textbf{Quantitative comparison} on 100 evaluation episodes ($T_{\max}=10$, scenes with obstacles). $\uparrow$: higher is better; $\downarrow$: lower is better. Frames-to-Find / Frames-to-Classify set to $T_{\max}{+}1$ if not achieved. Best result in \textbf{bold}.}
+\label{tab:results}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lccccccc}
+\toprule
+\textbf{Method}
+  & \makecell{\textbf{Obj. Found}\\(\%) $\uparrow$}
+  & \makecell{\textbf{Frames-to-}\\\textbf{Find} $\downarrow$}
+  & \makecell{\textbf{Frames-to-}\\\textbf{Classify} $\downarrow$}
+  & \makecell{$\phid$ (final)\\$\downarrow$}
+  & \makecell{\textbf{Success}\\(\%) $\uparrow$}
+  & \makecell{\textbf{Collision}\\(\%) $\downarrow$}
+  & \makecell{\textbf{Uncertainty}\\$\downarrow$} \\
+\midrule
+Random          & -- & -- & -- & -- & -- & -- & -- \\
+Geometric NBV~\citep{wang2019active}   & -- & -- & -- & -- & -- & -- & -- \\
+\textbf{SAC-NBV (ours)} & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\subsection{Learning Curves}
+
+\begin{figure}[htbp]
+  \centering
+  \rule{0.92\textwidth}{5cm}   % <<< PLACEHOLDER — replace with training plots
+  \caption{\textbf{SAC-NBV training curves.} (\emph{Left}) Mean episode reward per training step, smoothed over 50 episodes. (\emph{Right}) Final $\phid$ per episode; a downward trend indicates the policy learns to uncover hidden objects.}
+  \label{fig:learning_curves}
+\end{figure}
+
+\subsection{Qualitative Analysis}
+
+\begin{figure}[htbp]
+  \centering
+  \rule{0.92\textwidth}{5.5cm}   % <<< PLACEHOLDER — replace with qualitative episode figure
+  \caption{\textbf{Qualitative episode (SAC-NBV).} Camera views at steps 1, 3, 6, 8, 10 (top row). The $\phid$ trajectory (bottom) shows the agent systematically reducing hidden-object uncertainty by manoeuvring around obstacles.}
+  \label{fig:qualitative}
+\end{figure}
+
+%============================================================
+\FloatBarrier
+\section{Conclusion}
+\label{sec:conclusion}
+%============================================================
+
+We presented a system for active multi-object segmentation under occlusion that couples a SAC view-planning policy with the ODIN 3D instance segmentation backbone. Our Coverage Head produces a dense, self-supervised reward signal $\phid$ that directly measures hidden-object uncertainty, decoupled from the RL objective to prevent reward collapse. The Geometric NBV baseline adapts the Wang et al.\ framework to the CAD-free setting, providing a principled non-learning reference.
+
+\textbf{Limitations.} All experiments are conducted in simulation; sim-to-real transfer~\citep{tobin2017domain,zhao2020sim2real} remains an open challenge. The global (state-independent) log-std parameterisation is a simplification compared to state-conditioned uncertainty. Mean-pooling query features into a single scene embedding may discard per-instance information relevant to view planning.
+
+\textbf{Future work.} The most immediate direction is sim-to-real transfer~\citep{tobin2017domain}: deploying the learned policy on a physical UR3 in scenes with real-world objects that go beyond the simple primitives used here, including irregular and deformable shapes for which no CAD models exist. On the algorithmic side, we see two promising extensions. First, the current policy selects a single next viewpoint; planning a short \emph{sequence} of future poses jointly could yield more globally informative trajectories, as the agent would reason about how successive viewpoints compound to reduce occlusion. Second, augmenting the policy with a \emph{predictive visual imagination} module --- one that generates the RGB-D image the camera would observe at each candidate pose before committing to movement --- could provide the model with richer evidence about where hidden objects are likely located, grounding the Coverage Head estimate in anticipated rather than only observed scene content. We also plan to explore end-to-end fine-tuning of the ODIN transformer decoder alongside the RL objective once the policy has stabilised.
+
+%============================================================
+\clearpage
+\acknowledgments{Acknowledgments will be included in the camera-ready version.}
+
+% Bibliography
+\bibliography{main}
+
+%============================================================
+\appendix
+\section{SAC Objective Equations}
+\label{app:sac}
+%============================================================
+
+The critic minimises the Huber Bellman error:
+\begin{equation}
+  \mathcal{L}_Q(\theta) = \mathbb{E}_{(s,a,r,s')\sim\Dcal}\Bigl[
+    \mathrm{Huber}\bigl(Q_\theta(s,a),\; y\bigr)
+  \Bigr],
+  \label{eq:critic_loss}
+\end{equation}
+\begin{equation}
+  y = r + \gamma(1-d)\Bigl[
+    \min_{j=1,2} Q_{\bar\theta_j}(s', \tilde{a}') - \alpha\log\pi_\phi(\tilde{a}' \mid s')
+  \Bigr],
+  \quad \tilde{a}' \sim \pi_\phi(\cdot \mid s').
+\end{equation}
+The actor maximises expected Q with entropy regularisation:
+\begin{equation}
+  \mathcal{L}_\pi(\phi) = \mathbb{E}_{s\sim\Dcal,\,\tilde{a}\sim\pi_\phi}\Bigl[
+    \alpha\log\pi_\phi(\tilde{a} \mid s) - \min_{j=1,2} Q_{\theta_j}(s, \tilde{a})
+  \Bigr].
+  \label{eq:actor_loss}
+\end{equation}
+The entropy coefficient $\alpha$ is tuned automatically with target entropy $\mathcal{H}^* = -|\mathcal{A}| = -6$~\citep{haarnoja2018sac}. Critic target networks are soft-updated with $\tau = 0.005$.
+
+\end{document}

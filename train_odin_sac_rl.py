@@ -111,7 +111,7 @@ class ActorMLP(nn.Module):
     This resolves the fundamental mismatch where get_action (ODIN forward) and
     get_action_from_obs_vec (obs_vec hints) were two different functions.
 
-    obs_dim: 18 (obs_vec) + 256 (scene_emb) = 274
+    obs_dim: 14 (obs_vec) + 256 (scene_emb) = 270
     """
 
     def __init__(self, obs_dim: int, action_dim: int, hidden_dim: int = 256):
@@ -139,7 +139,7 @@ class QNetwork(nn.Module):
 
     def __init__(self, obs_dim: int, action_dim: int, hidden_dim: int = 256):
         super().__init__()
-        self.use_scene_emb = (obs_dim >= 274)
+        self.use_scene_emb = (obs_dim >= 270)
 
         if self.use_scene_emb:
             self.scene_proj1 = nn.Sequential(
@@ -150,7 +150,7 @@ class QNetwork(nn.Module):
                 nn.Linear(256, 128), nn.ReLU(),
                 nn.Linear(128, 64), nn.ReLU(),
             )
-            mlp_in_dim = 64 + 14 + 6 + 1 + 7  # 92
+            mlp_in_dim = 64 + 10 + 6 + 1 + 6  # 87 (UR3: 6 joints, no nbv_hint)
         else:
             mlp_in_dim = obs_dim + action_dim
 
@@ -171,9 +171,8 @@ class QNetwork(nn.Module):
 
         curr_pos = obs[:, :3]
         delta_p = obs[:, 7:8]
-        joints = obs[:, 8:15]
-        nbv_hint = obs[:, 15:18]
-        scene_emb = obs[:, 18:274]
+        joints = obs[:, 8:14]   # UR3: 6 joints
+        scene_emb = obs[:, 14:270]
 
         target_pos = action[:, :3]
         target_euler = action[:, 3:]
@@ -184,13 +183,10 @@ class QNetwork(nn.Module):
         dist = torch.norm(rel_pos, dim=-1, keepdim=True)
         direction = rel_pos / (dist + 1e-6)
 
-        hint_rel_pos = target_pos - nbv_hint
-        hint_dist = torch.norm(hint_rel_pos, dim=-1, keepdim=True)
+        geom_feats = torch.cat([rel_pos, rel_euler, dist, direction], dim=-1)  # 10
 
-        geom_feats = torch.cat([rel_pos, rel_euler, dist, direction, hint_rel_pos, hint_dist], dim=-1)  # 14
-
-        oob_min = torch.tensor([0.2, -0.5, 0.05], device=action.device)
-        oob_max = torch.tensor([0.8, 0.5, 0.8], device=action.device)
+        oob_min = torch.tensor(config.ACTION_MIN[:3], dtype=torch.float32, device=action.device)
+        oob_max = torch.tensor(config.ACTION_MAX[:3], dtype=torch.float32, device=action.device)
         oob_feats = torch.cat([F.relu(oob_min - target_pos), F.relu(target_pos - oob_max)], dim=-1)  # 6
 
         scene_feats = proj_net(scene_emb)  # 64
@@ -285,8 +281,7 @@ class OdinSACAgent:
         """
         Behavioral policy during rollout: ActorMLP → mean_action.
         ODIN inference still runs to obtain scene_emb, p_hidden, instances_3d,
-        and to populate obs_vec[15:18] with the current NBV Head recommendation
-        (nbv_hint) so ActorMLP can use it as an input feature.
+        and next best view position from the frozen ODIN head.
         """
         cam_pos = obs["vector"][:3]
         cam_orn = obs["vector"][3:7]
@@ -296,9 +291,8 @@ class OdinSACAgent:
             current_quat=cam_orn.astype(np.float32),
         )
 
-        # Build obs_vec_full — inject current NBV Head position as nbv_hint
-        obs_vec = obs["vector"].copy()
-        obs_vec[15:18] = result["nbv_pos_t"].detach().cpu().numpy()
+        # Build obs_vec_full
+        obs_vec = obs["vector"]
         scene_emb = result.get("scene_embedding", np.zeros(256, dtype=np.float32))
         obs_vec_full = np.concatenate([obs_vec, scene_emb])
 
@@ -320,6 +314,8 @@ class OdinSACAgent:
         action_np = action_t.detach().cpu().numpy().astype(np.float32)
         # NOTE: clipping happens in the training loop AFTER OOB detection, not here
 
+        nbv_hint_np = result["nbv_pos_t"].detach().cpu().numpy()
+
         return (
             action_np, log_prob,
             obs_vec_full,
@@ -327,6 +323,7 @@ class OdinSACAgent:
             result.get("p_hidden_logit_t"),
             result.get("instances_3d"),
             result.get("original_xyz"),
+            nbv_hint_np,
         )
 
     def get_action_from_obs_vec(self, obs_vec_batch: torch.Tensor):
@@ -433,6 +430,13 @@ def parse_args():
     p.add_argument("--save_freq", type=int, default=5000)
     p.add_argument("--log_freq", type=int, default=10)
 
+    p.add_argument("--policy", choices=["sac", "geometric", "uncertainty"], default="sac",
+                   help="sac: SAC learning; geometric: Wang NBV baseline; uncertainty: ODIN NBV hint")
+    p.add_argument("--swag", action="store_true",
+                   help="Enable SWAG Bayesian inference (MODEL.BAYESIAN_TYPE=swag)")
+    p.add_argument("--vis_episodes", nargs="*", type=int, default=[],
+                   help="Episode indices to save HTML point-cloud visualization")
+
     return p.parse_args()
 
 
@@ -446,12 +450,23 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    from src.nbv.metrics import EpisodeMetricsTracker
+    from src.nbv.novelty import VoxelNoveltyTracker
+    from src.nbv.geometry_memory import GeometryMemory
+    from src.nbv.policies.info_gain import GeometricNBVPolicy
+    from src.nbv.policies.uncertainty import UncertaintyPolicy
+    from src.nbv.visualization import EpisodeVisualizer
+
     print(f"[INFO] Loading ODIN from {args.odin_weights} ...")
     from src.vision.odin_adapter import load_nbv_active_odin
+    swag_opts = (["MODEL.BAYESIAN_TYPE", "swag", "MODEL.BAYESIAN_SAMPLES", "10",
+                  "MODEL.SWAG.SCALE", "1.0"] if args.swag else None)
     model, adapter = load_nbv_active_odin(
         args.odin_weights, args.odin_cfg, args.num_classes,
-        torch.device(device),
+        torch.device(device), extra_opts=swag_opts,
     )
+    if args.swag:
+        print("[INFO] SWAG Bayesian inference enabled (10 MC samples)")
 
     # Freeze strategy
     if args.freeze_backbone:
@@ -505,7 +520,7 @@ def main():
         external_infer=True,
     )
 
-    obs_dim = env.observation_space["vector"].shape[0] + 256  # 18 + 256 = 274
+    obs_dim = env.observation_space["vector"].shape[0] + 256  # 14 + 256 = 270
 
     agent = OdinSACAgent(
         odin_model=model, adapter=adapter,
@@ -523,16 +538,47 @@ def main():
     ]
     coverage_optimizer = torch.optim.Adam(coverage_params, lr=1e-4) if coverage_params else None
 
-    # CSV logging
+    # Policy objects for baseline modes
+    geometric_policy = GeometricNBVPolicy()
+    uncertainty_policy = UncertaintyPolicy()
+    print(f"[INFO] Policy: {args.policy}")
+
+    # CSV logging — per-episode
     csv_path = output_dir / "sac_metrics.csv"
     csv_f = open(csv_path, "a", newline="")
     csv_w = csv.writer(csv_f)
     if csv_path.stat().st_size == 0:
         csv_w.writerow([
-            "step", "episode", "ep_reward", "ep_steps", "success",
+            "step", "episode", "policy", "ep_reward", "ep_steps", "success",
             "p_hidden_mean", "collision_rate", "oob_rate",
             "critic_loss", "actor_loss", "coverage_loss", "alpha",
-            "rew_env", "rew_coverage", "rew_exploration",
+            "rew_env", "rew_coverage", "rew_exploration", "rew_novelty",
+            # Wang metrics
+            "wang_macro_accuracy", "wang_macro_precision", "wang_macro_recall", "wang_macro_f1",
+            # Korbach
+            "korbach_final_confidence_diff", "korbach_best_confidence_diff",
+            # ODIN uncertainty
+            "odin_uncertainty_reduction", "odin_uncertainty_auc",
+            # Objects
+            "objects_found_fraction", "objects_correct", "objects_in_scene",
+            "steps_to_all_objects", "steps_to_all_correct",
+            # Coverage geometry
+            "geometry_visible_classes", "geometry_mean_coverage",
+            "p_hidden_initial", "p_hidden_final",
+            "collision_steps", "out_of_reach_steps",
+        ])
+
+    # Per-step CSV
+    step_csv_path = output_dir / "step_metrics.csv"
+    step_csv_f = open(step_csv_path, "a", newline="")
+    step_csv_w = csv.writer(step_csv_f)
+    if step_csv_path.stat().st_size == 0:
+        step_csv_w.writerow([
+            "total_step", "episode", "ep_step", "reward",
+            "rew_env", "rew_coverage", "rew_exploration", "rew_novelty",
+            "p_hidden", "delta_p_hidden", "uncertainty",
+            "critic_loss", "actor_loss", "coverage_loss", "alpha",
+            "collision", "oob",
         ])
 
     print(f"\n{'='*60}")
@@ -551,6 +597,8 @@ def main():
     _coll_thresh = config.PENALTY_COLLISION / 2.0
     _oob_thresh = config.PENALTY_OOB / 2.0
 
+    vis_episodes = set(args.vis_episodes or [])
+
     while total_step < args.total_steps:
         obs, _ = env.reset()
         adapter.reset()
@@ -561,13 +609,33 @@ def main():
         ep_env_rew = 0.0
         ep_coverage_rew = 0.0
         ep_exploration_rew = 0.0
+        ep_novelty_rew = 0.0
         ep_steps = 0
         ep_collisions = 0
         ep_oob = 0
         ep_p_hidden_sum = 0.0
+        ep_unc_sum = 0.0
         c_loss = a_loss = 0.0
         ep_cov_losses = []
         success_flag = 0
+
+        # Per-episode trackers
+        novelty_tracker = VoxelNoveltyTracker(config.REWARD_NOVELTY_VOXEL_SIZE)
+        geom_memory = GeometryMemory(
+            fx=config.IMAGE_SIZE / 2.0, fy=config.IMAGE_SIZE / 2.0,
+            cx=config.IMAGE_SIZE / 2.0, cy=config.IMAGE_SIZE / 2.0,
+        )
+        gt_classes = list(env.asset_loader.target_objects_classes) if hasattr(env, 'asset_loader') else []
+        metrics_tracker = EpisodeMetricsTracker(args.policy, episode, args.num_classes, args.max_steps)
+        metrics_tracker.set_scene(gt_classes)
+        if args.policy == "geometric":
+            geometric_policy.reset()
+
+        # Visualization
+        viz = None
+        if episode in vis_episodes:
+            vis_path = output_dir / "vis" / f"episode_{episode}.html"
+            viz = EpisodeVisualizer(vis_path)
 
         record_video = (episode + 1) in args.record_episodes
         video_frames = []
@@ -578,10 +646,24 @@ def main():
 
         for step in range(config.MAX_STEPS_PER_EPISODE):
             (action_np, log_prob, obs_vec, delta_p, p_hidden,
-             p_hidden_logit_t, instances_3d, original_xyz) = agent.get_action(
+             p_hidden_logit_t, instances_3d, original_xyz, nbv_hint_np) = agent.get_action(
                 obs, adapter, deterministic=False,
             )
             ep_p_hidden_sum += p_hidden
+
+            # Baseline policy overrides action (ODIN still ran for obs/metrics)
+            if args.policy == "geometric":
+                seg_mask = env.last_seg if hasattr(env, 'last_seg') else np.full((config.IMAGE_SIZE, config.IMAGE_SIZE), -1, np.int32)
+                depth_m = obs["image"][3] * 10.0
+                cam_pos_g = obs["vector"][:3]
+                cam_quat_g = obs["vector"][3:7]
+                unc_map = None
+                mean_unc = float(obs["vector"][7])
+                best_xyz = geometric_policy.act(seg_mask, depth_m, cam_pos_g, cam_quat_g, unc_map, mean_unc)
+                action_np[:3] = best_xyz
+            elif args.policy == "uncertainty":
+                best_xyz = uncertainty_policy.act(nbv_hint_np, obs["vector"][:3])
+                action_np[:3] = best_xyz
 
             # OOB detection on unclipped action; clip AFTER so the env still gets a safe action
             _amin3 = np.array(config.ACTION_MIN[:3], dtype=np.float32)
@@ -616,6 +698,16 @@ def main():
             delta_p_hidden = p_hidden - next_p_hidden
             rew_coverage = delta_p_hidden * config.REWARD_SCALE
 
+            # Novelty reward from new foreground voxels
+            rew_novelty = 0.0
+            if original_xyz is not None and len(original_xyz) > 0:
+                rew_novelty = novelty_tracker.update_and_score(original_xyz) * config.REWARD_NOVELTY_FACTOR
+
+            # Update GeometryMemory for metrics tracking
+            seg_mask_for_mem = env.last_seg if hasattr(env, 'last_seg') else np.full((config.IMAGE_SIZE, config.IMAGE_SIZE), -1, np.int32)
+            depth_for_mem = obs["image"][3] * 10.0
+            geom_memory.update(seg_mask_for_mem, depth_for_mem, obs["vector"][:3], obs["vector"][3:7])
+
             # Train Coverage Head with supervised BCE (decoupled from RL reward)
             if p_hidden_logit_t is not None and coverage_optimizer is not None:
                 gt_tensor = torch.tensor([current_gt_p_hidden], dtype=torch.float32, device=device)
@@ -639,7 +731,7 @@ def main():
             if is_oob:
                 ep_oob += 1
 
-            # Full reward: env + coverage + exploration bonuses
+            # Full reward: env + coverage + exploration + novelty
             reward = float(_env_rew)
             rew_expl = 0.0
             if not is_collision and not is_oob:
@@ -648,17 +740,65 @@ def main():
                     rew_expl = config.REWARD_EXPLORATION_COMPLETE_BONUS
                 else:
                     rew_expl = (1.0 - p_hidden) * config.REWARD_EXPLORATION_PARTIAL_FACTOR
-                reward += rew_expl
+                reward += rew_expl + rew_novelty
 
             # Update env tracking for its internal logs
             env.episode_history[-1]["delta_p_hidden"] = delta_p_hidden
             env.episode_history[-1]["rew_coverage"] = rew_coverage
             env.episode_history[-1]["reward"] = reward
-            env.current_episode_reward += rew_coverage + rew_expl
+            env.current_episode_reward += rew_coverage + rew_expl + rew_novelty
             env.episode_history[-1]["cum_reward"] = env.current_episode_reward
 
             done = terminated or truncated
             next_obs_vec = np.concatenate([next_obs["vector"], next_scene_emb])
+
+            # Metrics tracker per-step update
+            cur_unc = float(next_outputs.get("mean_uncertainty", next_p_hidden))
+            ep_unc_sum += cur_unc
+            pred_classes = []
+            pred_scores = []
+            detected_ids = []
+            if instances_3d is not None:
+                try:
+                    pred_classes = [int(c) for c in instances_3d.pred_classes.tolist()]
+                    pred_scores = [float(s) for s in instances_3d.scores.tolist()]
+                    detected_ids = list(range(len(pred_classes)))
+                except Exception:
+                    pass
+            metrics_tracker.update(
+                reward=reward,
+                pred_classes=pred_classes,
+                pred_scores=pred_scores,
+                detected_ids=detected_ids,
+                p_hidden=p_hidden,
+                uncertainty=cur_unc,
+                is_collision=is_collision,
+                is_oob=is_oob,
+            )
+
+            # Per-step CSV
+            step_csv_w.writerow([
+                total_step, episode, ep_steps + 1,
+                f"{reward:.4f}", f"{float(_env_rew):.4f}",
+                f"{rew_coverage:.4f}", f"{rew_expl:.4f}", f"{rew_novelty:.4f}",
+                f"{p_hidden:.4f}", f"{delta_p_hidden:.4f}", f"{cur_unc:.4f}",
+                f"{c_loss:.4f}", f"{a_loss:.4f}",
+                f"{ep_cov_losses[-1]:.4f}" if ep_cov_losses else "0.0",
+                f"{agent.alpha.item():.4f}",
+                int(is_collision), int(is_oob),
+            ])
+
+            # Visualization frame
+            if viz is not None:
+                rgb_vis = obs.get("_raw_rgb")
+                if rgb_vis is not None:
+                    viz.add_frame(
+                        rgb=rgb_vis,
+                        depth=obs["image"][3] * 10.0,
+                        seg_mask=env.last_seg if hasattr(env, 'last_seg') else None,
+                        cam_pos=obs["vector"][:3],
+                        cam_quat_xyzw=obs["vector"][3:7],
+                    )
 
             if record_video and env.render_mode == "rgb_array":
                 frame = env.render()
@@ -671,6 +811,7 @@ def main():
             ep_env_rew += float(_env_rew)
             ep_coverage_rew += rew_coverage
             ep_exploration_rew += rew_expl
+            ep_novelty_rew += rew_novelty
             ep_steps += 1
             total_step += 1
 
@@ -678,7 +819,7 @@ def main():
                 success_flag = 1
 
             # SAC updates — gradient_steps per env step (UTD ratio)
-            if len(replay_buffer) >= max(args.learning_starts, args.batch_size) and total_step % args.update_freq == 0:
+            if args.policy == "sac" and len(replay_buffer) >= max(args.learning_starts, args.batch_size) and total_step % args.update_freq == 0:
                 for _ in range(args.gradient_steps):
                     batch = replay_buffer.sample(args.batch_size)
                     c_loss = agent.update_critic(batch)
@@ -700,19 +841,41 @@ def main():
             imageio.mimsave(str(video_path), video_frames, fps=15)
             print(f"[INFO] Video saved: {video_path}")
 
+        if viz is not None:
+            viz.save(episode - 1)
+
         avg_cov_loss = float(np.mean(ep_cov_losses)) if ep_cov_losses else 0.0
         p_hidden_mean = ep_p_hidden_sum / max(ep_steps, 1)
         collision_rate = ep_collisions / max(ep_steps, 1)
         oob_rate = ep_oob / max(ep_steps, 1)
 
+        ep_metrics = metrics_tracker.finalize(success=bool(success_flag))
+        ep_metrics.geometry_visible_classes = geom_memory.visible_classes
+        ep_metrics.geometry_mean_coverage = geom_memory.mean_coverage
+
         csv_w.writerow([
-            total_step, episode, f"{ep_reward:.4f}", ep_steps, success_flag,
+            total_step, episode, args.policy, f"{ep_reward:.4f}", ep_steps, success_flag,
             f"{p_hidden_mean:.4f}", f"{collision_rate:.3f}", f"{oob_rate:.3f}",
             f"{c_loss:.4f}", f"{a_loss:.4f}", f"{avg_cov_loss:.4f}",
             f"{agent.alpha.item():.4f}",
-            f"{ep_env_rew:.4f}", f"{ep_coverage_rew:.4f}", f"{ep_exploration_rew:.4f}",
+            f"{ep_env_rew:.4f}", f"{ep_coverage_rew:.4f}", f"{ep_exploration_rew:.4f}", f"{ep_novelty_rew:.4f}",
+            # Wang metrics
+            f"{ep_metrics.wang_macro_accuracy:.4f}", f"{ep_metrics.wang_macro_precision:.4f}",
+            f"{ep_metrics.wang_macro_recall:.4f}", f"{ep_metrics.wang_macro_f1:.4f}",
+            # Korbach
+            f"{ep_metrics.final_confidence_diff:.4f}", f"{ep_metrics.best_confidence_diff:.4f}",
+            # ODIN uncertainty
+            f"{ep_metrics.uncertainty_reduction:.4f}", f"{ep_metrics.uncertainty_auc:.4f}",
+            # Objects
+            f"{ep_metrics.objects_found_fraction:.4f}", ep_metrics.objects_correct, ep_metrics.objects_in_scene,
+            ep_metrics.steps_to_all_objects, ep_metrics.steps_to_all_correct,
+            # Geometry
+            ep_metrics.geometry_visible_classes, f"{ep_metrics.geometry_mean_coverage:.4f}",
+            f"{ep_metrics.p_hidden_initial:.4f}", f"{ep_metrics.p_hidden_final:.4f}",
+            ep_metrics.collision_steps, ep_metrics.out_of_reach_steps,
         ])
         csv_f.flush()
+        step_csv_f.flush()
 
         if episode % args.log_freq == 0:
             avg = np.mean(list(reward_history))
@@ -734,6 +897,7 @@ def main():
 
     _save(model, agent, output_dir / "last.pth")
     csv_f.close()
+    step_csv_f.close()
     env.close()
     print(f"\n  Done! Best reward: {best_reward:.2f}. Output: {output_dir}")
 

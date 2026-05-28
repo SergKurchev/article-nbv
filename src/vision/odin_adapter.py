@@ -514,6 +514,7 @@ def load_nbv_active_odin(
     cfg_path: str,
     num_classes: int = 24,
     device: Optional[torch.device] = None,
+    extra_opts: list | None = None,
 ) -> Tuple["torch.nn.Module", "ODINAdapter"]:
     """
     Загружает предобученную модель NBVActiveODIN и возвращает адаптер.
@@ -555,6 +556,8 @@ def load_nbv_active_odin(
     cfg.MODEL.NBV_ACTIVE = True
     cfg.MODEL.DECODER_3D = True
     cfg.MODEL.DEVICE = str(device)
+    if extra_opts:
+        cfg.merge_from_list(extra_opts)
     cfg.freeze()
 
     # Оборачиваем в NBVActiveODIN (из my_train_odin.py)

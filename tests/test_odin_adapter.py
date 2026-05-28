@@ -368,11 +368,11 @@ class TestNBVODINEnvNoAdapter(unittest.TestCase):
         self.env.close()
 
     def test_observation_space_dims(self):
-        self.assertEqual(self.env.VECTOR_DIM, 18)
+        self.assertEqual(self.env.VECTOR_DIM, 14)
         img_shape = self.env.observation_space["image"].shape
         self.assertEqual(img_shape, (4, cfg_mod.IMAGE_SIZE, cfg_mod.IMAGE_SIZE))
         vec_shape = self.env.observation_space["vector"].shape
-        self.assertEqual(vec_shape, (18,))
+        self.assertEqual(vec_shape, (14,))
 
     def test_action_space_shape(self):
         self.assertEqual(self.env.action_space.shape, (6,))
@@ -382,7 +382,7 @@ class TestNBVODINEnvNoAdapter(unittest.TestCase):
         self.assertIn("image", obs)
         self.assertIn("vector", obs)
         self.assertEqual(obs["image"].shape, (4, cfg_mod.IMAGE_SIZE, cfg_mod.IMAGE_SIZE))
-        self.assertEqual(obs["vector"].shape, (18,))
+        self.assertEqual(obs["vector"].shape, (14,))
         self.assertIsInstance(info, dict)
 
     def test_reset_step_count_zero(self):
@@ -472,13 +472,7 @@ class TestNBVODINEnvWithAdapter(unittest.TestCase):
         # После второго reset буфер снова сбрасывается и пополняется 1 кадром
         self.assertLessEqual(len(self.adapter._frame_buffer), 2)
 
-    def test_nbv_hint_in_vector(self):
-        """nbv_hint (3 dims) должен быть ненулевым после infer."""
-        obs, _ = self.env.reset()
-        # nbv_hint — последние 3 элемента вектора (индексы 15,16,17)
-        nbv_hint = obs["vector"][15:18]
-        # FakeODINModel возвращает [0.3, 0.1, 0.5] — не нули
-        self.assertFalse(np.allclose(nbv_hint, 0.0))
+
 
     def test_reward_positive_when_p_hidden_decreases(self):
         """Если p_hidden снижается → delta > 0 → reward > 0.

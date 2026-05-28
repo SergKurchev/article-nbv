@@ -157,7 +157,7 @@ class AssetLoader:
 
         if config.SCENE_STAGE == 1:
             # Stage 1: Single object at fixed position
-            class_id = random.randint(0, config.NUM_CLASSES - 1)
+            class_id = random.choice(config.ACTIVE_SHAPE_IDS)
             texture_type = ['red', 'mixed', 'green'][class_id % 3]
             # Calculate proper Z position: center of object must be at least half_height above ground
             _, half_height = self._get_object_bounding_box(class_id)
@@ -203,7 +203,7 @@ class AssetLoader:
             for item_type, item_idx in placement_queue:
                 if item_type == 'object':
                     # Randomly select object class and texture
-                    class_id = random.randint(0, config.NUM_CLASSES - 1)
+                    class_id = random.choice(config.ACTIVE_SHAPE_IDS)
                     texture_type = ['red', 'mixed', 'green'][class_id % 3]
                     object_radius, object_half_height = self._get_object_bounding_box(class_id)
 
@@ -345,7 +345,7 @@ class AssetLoader:
 
         for _ in range(num_objects):
             # Randomly select object class
-            class_id = random.randint(0, config.NUM_CLASSES - 1)
+            class_id = random.choice(config.ACTIVE_SHAPE_IDS)
             object_radius, object_half_height = self._get_object_bounding_box(class_id)
 
             for attempt in range(config.SCENE_MAX_PLACEMENT_ATTEMPTS):

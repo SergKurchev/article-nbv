@@ -78,33 +78,33 @@ class TestReplayBuffer:
     def test_push_and_sample(self):
         buf = ReplayBuffer(100)
         for i in range(20):
-            buf.push(np.zeros(18), np.zeros(6), float(i), np.zeros(18), False)
+            buf.push(np.zeros(14), np.zeros(6), float(i), np.zeros(14), False)
         assert len(buf) == 20
 
         obs, act, rew, nobs, done = buf.sample(8)
-        assert obs.shape == (8, 18)
+        assert obs.shape == (8, 14)
         assert act.shape == (8, 6)
         assert rew.shape == (8, 1)
 
     def test_capacity(self):
         buf = ReplayBuffer(10)
         for i in range(50):
-            buf.push(np.zeros(18), np.zeros(6), 0.0, np.zeros(18), False)
+            buf.push(np.zeros(14), np.zeros(6), 0.0, np.zeros(14), False)
         assert len(buf) == 10
 
 
 class TestQNetwork:
     def test_forward_shapes(self):
-        q = QNetwork(obs_dim=18, action_dim=6, hidden_dim=128)
-        obs = torch.randn(4, 18)
+        q = QNetwork(obs_dim=14, action_dim=6, hidden_dim=128)
+        obs = torch.randn(4, 14)
         act = torch.randn(4, 6)
         q1, q2 = q(obs, act)
         assert q1.shape == (4, 1)
         assert q2.shape == (4, 1)
 
     def test_gradient_flow(self):
-        q = QNetwork(obs_dim=18, action_dim=6)
-        obs = torch.randn(4, 18)
+        q = QNetwork(obs_dim=14, action_dim=6)
+        obs = torch.randn(4, 14)
         act = torch.randn(4, 6, requires_grad=True)
         q1, q2 = q(obs, act)
         loss = (q1 + q2).mean()
@@ -117,16 +117,16 @@ class TestSACTrainingLoop:
 
     def test_critic_update_decreases_loss(self):
         """Critic loss уменьшается после нескольких обновлений."""
-        q = QNetwork(18, 6, 128)
+        q = QNetwork(14, 6, 128)
         q_target = copy.deepcopy(q)
         opt = torch.optim.Adam(q.parameters(), lr=1e-3)
 
         losses = []
         for _ in range(20):
-            obs = torch.randn(32, 18)
+            obs = torch.randn(32, 14)
             act = torch.randn(32, 6)
             rew = torch.randn(32, 1)
-            next_obs = torch.randn(32, 18)
+            next_obs = torch.randn(32, 14)
             done = torch.zeros(32, 1)
 
             with torch.no_grad():
@@ -161,7 +161,7 @@ class TestSACTrainingLoop:
         actor_opt = torch.optim.Adam(actor_params, lr=1e-3)
 
         # Critic
-        critic = QNetwork(18, 6, 128)
+        critic = QNetwork(14, 6, 128)
 
         for _ in range(5):
             # Simulate forward
@@ -180,7 +180,7 @@ class TestSACTrainingLoop:
             action = dist.rsample()
             log_prob = dist.log_prob(action).sum()
 
-            obs_vec = torch.randn(1, 18)
+            obs_vec = torch.randn(1, 14)
             q1, q2 = critic(obs_vec, action.unsqueeze(0))
             actor_loss = (0.2 * log_prob - torch.min(q1, q2)).mean()
 

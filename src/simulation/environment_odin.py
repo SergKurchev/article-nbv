@@ -60,8 +60,8 @@ class NBVODINEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 30}
 
     # Размер вектора наблюдения:
-    # pos(3) + orn(4) + delta_p_hidden(1) + joints(7) + nbv_hint(3) = 18
-    VECTOR_DIM = 18
+    # pos(3) + orn(4) + delta_p_hidden(1) + joints(6) = 14
+    VECTOR_DIM = 14
 
     def __init__(
         self,
@@ -602,7 +602,7 @@ class NBVODINEnv(gym.Env):
             )
             pos = np.array(pos, dtype=np.float32)
             orn = np.array(orn, dtype=np.float32)
-            joints = np.zeros(7, dtype=np.float32)
+            joints = np.zeros(6, dtype=np.float32)
 
         if not p.isConnected(physicsClientId=self.client_id):
             return self._get_dummy_obs()
@@ -651,14 +651,13 @@ class NBVODINEnv(gym.Env):
         # Дополнительно считаем найденные объекты (на основе маски)
         self._update_object_counts(seg)
 
-        # Вектор: pos(3) + orn(4) + delta_p_hidden(1) + joints(7) + nbv_hint(3)
+        # Вектор: pos(3) + orn(4) + delta_p_hidden(1) + joints(6)
         vector = np.concatenate([
             np.array(pos, dtype=np.float32),    # 3
             np.array(orn, dtype=np.float32),    # 4
             [delta_p_hidden],                   # 1
-            joints,                             # 7
-            nbv_hint,                           # 3
-        ]).astype(np.float32)                   # = 18
+            joints,                             # 6
+        ]).astype(np.float32)                   # = 14
 
         return {"image": rgbd, "vector": vector}
 

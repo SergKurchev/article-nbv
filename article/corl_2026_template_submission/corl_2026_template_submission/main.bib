@@ -1,0 +1,414 @@
+% ============================================================
+% main.bib — References for CoRL 2026 submission
+% arXiv IDs confirmed for all entries where preprints exist.
+% wang2019active: ICCVW workshop paper, no arXiv preprint found.
+% Before camera-ready: verify wang2019active pages/DOI.
+% ============================================================
+
+% ---- Reinforcement Learning ---------------------------------
+
+@InProceedings{haarnoja2018sac,
+  author        = {Tuomas Haarnoja and Aurick Zhou and Pieter Abbeel
+                   and Sergey Levine},
+  title         = {Soft Actor-Critic: Off-Policy Maximum Entropy Deep
+                   Reinforcement Learning with a Stochastic Actor},
+  booktitle     = {Proceedings of the International Conference on
+                   Machine Learning (ICML)},
+  year          = {2018},
+  pages         = {1861--1870},
+  archivePrefix = {arXiv},
+  eprint        = {1801.01290},
+  url           = {https://arxiv.org/abs/1801.01290},
+}
+
+@InProceedings{fujimoto2018td3,
+  author        = {Scott Fujimoto and Herke van Hoof and David Meger},
+  title         = {Addressing Function Approximation Error in
+                   Actor-Critic Methods},
+  booktitle     = {Proceedings of the International Conference on
+                   Machine Learning (ICML)},
+  year          = {2018},
+  pages         = {1587--1596},
+  archivePrefix = {arXiv},
+  eprint        = {1802.09477},
+  url           = {https://arxiv.org/abs/1802.09477},
+}
+
+% ---- Active Exploration / Uncertainty as Reward -------------
+
+@InProceedings{shyam2019model,
+  author        = {Pranav Shyam and Wojciech Ja\'skowski and Faustino Gomez},
+  title         = {Model-Based Active Exploration},
+  booktitle     = {Proceedings of the International Conference on
+                   Machine Learning (ICML)},
+  year          = {2019},
+  pages         = {5779--5788},
+  archivePrefix = {arXiv},
+  eprint        = {1810.12162},
+  url           = {https://arxiv.org/abs/1810.12162},
+}
+
+@InProceedings{sekar2020planning,
+  author        = {Ramanan Sekar and Oleh Rybkin and Kostas Daniilidis
+                   and Pieter Abbeel and Danijar Hafner and Deepak Pathak},
+  title         = {Planning to Explore via Self-Supervised World Models},
+  booktitle     = {Proceedings of the International Conference on
+                   Machine Learning (ICML)},
+  year          = {2020},
+  pages         = {8583--8592},
+  archivePrefix = {arXiv},
+  eprint        = {2005.05960},
+  url           = {https://arxiv.org/abs/2005.05960},
+}
+
+% ---- Active Perception / RL for View Planning ---------------
+
+@InProceedings{jayaraman2018learning,
+  author        = {Dinesh Jayaraman and Kristen Grauman},
+  title         = {Learning to Look Around: Intelligently Exploring
+                   Unseen Environments for Unknown Tasks},
+  booktitle     = {Proceedings of the IEEE/CVF Conference on Computer
+                   Vision and Pattern Recognition (CVPR)},
+  year          = {2018},
+  pages         = {1238--1247},
+  archivePrefix = {arXiv},
+  eprint        = {1709.00507},
+  url           = {https://arxiv.org/abs/1709.00507},
+}
+
+@InProceedings{doumanoglou2016recovering,
+  author        = {Andreas Doumanoglou and Rigas Kouskouridas and
+                   Sotiris Malassiotis and Tae-Kyun Kim},
+  title         = {Recovering 6{D} Object Pose and Predicting Next-Best-View
+                   in the Crowd},
+  booktitle     = {Proceedings of the IEEE/CVF Conference on Computer Vision
+                   and Pattern Recognition (CVPR)},
+  year          = {2016},
+  pages         = {3583--3592},
+  archivePrefix = {arXiv},
+  eprint        = {1512.07506},
+  url           = {https://arxiv.org/abs/1512.07506},
+}
+
+@misc{nbv_rl_classification,
+  author        = {Christian Korbach and Markus D. Solbach and
+                   Raphael Memmesheimer and Dietrich Paulus
+                   and John K. Tsotsos},
+  title         = {Next-Best-View Estimation Based on Deep Reinforcement
+                   Learning for Active Object Classification},
+  year          = {2021},
+  archivePrefix = {arXiv},
+  eprint        = {2110.06766},
+  primaryClass  = {cs.RO},
+  url           = {https://arxiv.org/abs/2110.06766},
+  note          = {Code: \url{https://github.com/ckorbach/nbv\_rl}},
+}
+
+% ---- NBV: Reconstruction & Exploration ----------------------
+
+@InProceedings{gennbv2024,
+  author        = {Xiao Chen and Quanyi Li and Tai Wang and
+                   Tianfan Xue and Jiangmiao Pang},
+  title         = {{GenNBV}: Generalizable Next-Best-View Policy for
+                   Active 3{D} Reconstruction},
+  booktitle     = {Proceedings of the IEEE/CVF Conference on Computer
+                   Vision and Pattern Recognition (CVPR)},
+  year          = {2024},
+  archivePrefix = {arXiv},
+  eprint        = {2402.16174},
+  url           = {https://arxiv.org/abs/2402.16174},
+}
+
+@InProceedings{uncertainty_driven,
+  author        = {Liren Jin and Xieyuanli Chen and Julius R\"{u}ckin
+                   and Marija Popovi{\'c}},
+  title         = {Uncertainty-Driven Active Vision for Implicit Scene
+                   Reconstruction},
+  booktitle     = {IEEE/RSJ International Conference on Intelligent
+                   Robots and Systems (IROS)},
+  year          = {2023},
+  archivePrefix = {arXiv},
+  eprint        = {2210.00978},
+  url           = {https://arxiv.org/abs/2210.00978},
+}
+
+@InProceedings{activenerf2022,
+  author        = {Xuran Pan and Zihang Lai and Shiji Song and Gao Huang},
+  title         = {{ActiveNeRF}: Learning Where to See with Uncertainty
+                   Estimation},
+  booktitle     = {European Conference on Computer Vision (ECCV)},
+  year          = {2022},
+  archivePrefix = {arXiv},
+  eprint        = {2209.08546},
+  url           = {https://arxiv.org/abs/2209.08546},
+}
+
+@Article{hornung2013octomap,
+  author  = {Armin Hornung and Kai M. Wurm and Maren Bennewitz
+             and Cyrill Stachniss and Wolfram Burgard},
+  title   = {{OctoMap}: An Efficient Probabilistic 3{D} Mapping
+             Framework Based on Octrees},
+  journal = {Autonomous Robots},
+  year    = {2013},
+  volume  = {34},
+  number  = {3},
+  pages   = {189--206},
+}
+% no arXiv; see https://doi.org/10.1007/s10514-012-9321-0
+
+@Article{vasquez2014volumetric,
+  author  = {Jesus Vasquez-Gomez and L. Enrique Sucar and
+             Rafael Murrieta-Cid and Efrain Lopez-Damian},
+  title   = {Volumetric Next-Best-View Planning for 3{D} Object
+             Reconstruction with Positioning Error},
+  journal = {International Journal of Advanced Robotic Systems},
+  year    = {2014},
+  volume  = {11},
+  number  = {10},
+  pages   = {159},
+}
+% no arXiv
+
+@InProceedings{bircher2016receding,
+  author        = {Andreas Bircher and Mina Kamel and Kostas Alexis
+                   and Helen Oleynikova and Roland Siegwart},
+  title         = {Receding Horizon ``Next-Best-View'' Planner for
+                   3{D} Exploration},
+  booktitle     = {IEEE International Conference on Robotics and
+                   Automation (ICRA)},
+  year          = {2016},
+  pages         = {1462--1468},
+  archivePrefix = {arXiv},
+  eprint        = {1602.00607},
+  url           = {https://arxiv.org/abs/1602.00607},
+}
+
+@InProceedings{yamauchi1997frontier,
+  author    = {Brian Yamauchi},
+  title     = {A Frontier-Based Approach for Autonomous Exploration},
+  booktitle = {IEEE International Symposium on Computational Intelligence
+               in Robotics and Automation (CIRA)},
+  year      = {1997},
+  pages     = {146--151},
+}
+% pre-arXiv era
+
+% ---- NBV: Multi-Object Recognition --------------------------
+
+@InProceedings{wang2019active,
+  author    = {Yiming Wang and Marco Carletti and Francesco Setti and
+               Marco Cristani and Alessio {Del Bue}},
+  title     = {Active 3{D} Classification of Multiple Objects in
+               Cluttered Scenes},
+  booktitle = {Proceedings of the IEEE/CVF International Conference on
+               Computer Vision Workshops (ICCVW)},
+  year      = {2019},
+}
+% no arXiv preprint found; ICCVW workshop paper only
+
+@Article{denzler2002information,
+  author  = {Joachim Denzler and Christopher M. Brown},
+  title   = {Information Theoretic Sensor Data Selection for Active
+             Object Recognition and State Estimation},
+  journal = {IEEE Transactions on Pattern Analysis and Machine Intelligence},
+  year    = {2002},
+  volume  = {24},
+  number  = {2},
+  pages   = {145--157},
+}
+% pre-arXiv era
+
+@Article{scott2003view,
+  author  = {W. R. Scott and Gerhard Roth and Jean-Fran\c{c}ois Rivest},
+  title   = {View Planning for Automated Three-Dimensional Object
+             Reconstruction and Inspection},
+  journal = {ACM Computing Surveys},
+  year    = {2003},
+  volume  = {35},
+  number  = {1},
+  pages   = {64--96},
+}
+% pre-arXiv era; DOI 10.1145/641865.641868
+
+% ---- 3D Perception & Segmentation ---------------------------
+
+@InProceedings{odin2024,
+  author        = {Ayush Jain and Pushkal Katara and Nikolaos Gkanatsios
+                   and Adam W. Harley and Gabriel Sarch and Kriti Aggarwal
+                   and Vishrav Chaudhary and Katerina Fragkiadaki},
+  title         = {{ODIN}: A Single Model for 2{D} and 3{D} Segmentation},
+  booktitle     = {Proceedings of the IEEE/CVF Conference on Computer
+                   Vision and Pattern Recognition (CVPR)},
+  year          = {2024},
+  archivePrefix = {arXiv},
+  eprint        = {2401.02416},
+  url           = {https://arxiv.org/abs/2401.02416},
+}
+
+@InProceedings{mask2former2022,
+  author        = {Bowen Cheng and Ishan Misra and Alexander G. Schwing
+                   and Alexander Kirillov and Rohit Girdhar},
+  title         = {Masked-Attention Mask Transformer for Universal
+                   Image Segmentation},
+  booktitle     = {Proceedings of the IEEE/CVF Conference on Computer
+                   Vision and Pattern Recognition (CVPR)},
+  year          = {2022},
+  pages         = {1290--1299},
+  archivePrefix = {arXiv},
+  eprint        = {2112.01527},
+  url           = {https://arxiv.org/abs/2112.01527},
+}
+
+@InProceedings{schult2023mask3d,
+  author        = {Jonas Schult and Francis Engelmann and
+                   Alexander Hermans and Or Litany and Siyu Tang
+                   and Bastian Leibe},
+  title         = {{Mask3D}: Mask Transformer for 3{D} Instance
+                   Segmentation},
+  booktitle     = {IEEE International Conference on Robotics and
+                   Automation (ICRA)},
+  year          = {2023},
+  archivePrefix = {arXiv},
+  eprint        = {2210.03105},
+  url           = {https://arxiv.org/abs/2210.03105},
+}
+
+@InProceedings{carion2020detr,
+  author        = {Nicolas Carion and Francisco Massa and Gabriel Synnaeve
+                   and Nicolas Usunier and Alexander Kirillov
+                   and Sergey Zagoruyko},
+  title         = {End-to-End Object Detection with Transformers},
+  booktitle     = {European Conference on Computer Vision (ECCV)},
+  year          = {2020},
+  pages         = {213--229},
+  archivePrefix = {arXiv},
+  eprint        = {2005.12872},
+  url           = {https://arxiv.org/abs/2005.12872},
+}
+
+@InProceedings{qi2017pointnet,
+  author        = {Charles R. Qi and Hao Su and Kaichun Mo
+                   and Leonidas J. Guibas},
+  title         = {{PointNet}: Deep Learning on Point Sets for 3{D}
+                   Classification and Segmentation},
+  booktitle     = {Proceedings of the IEEE/CVF Conference on Computer
+                   Vision and Pattern Recognition (CVPR)},
+  year          = {2017},
+  pages         = {652--660},
+  archivePrefix = {arXiv},
+  eprint        = {1612.00593},
+  url           = {https://arxiv.org/abs/1612.00593},
+}
+
+% ---- Architecture Foundations --------------------------------
+
+@InProceedings{he2016resnet,
+  author        = {Kaiming He and Xiangyu Zhang and Shaoqing Ren
+                   and Jian Sun},
+  title         = {Deep Residual Learning for Image Recognition},
+  booktitle     = {Proceedings of the IEEE/CVF Conference on Computer
+                   Vision and Pattern Recognition (CVPR)},
+  year          = {2016},
+  pages         = {770--778},
+  archivePrefix = {arXiv},
+  eprint        = {1512.03385},
+  url           = {https://arxiv.org/abs/1512.03385},
+}
+
+@InProceedings{vaswani2017attention,
+  author        = {Ashish Vaswani and Noam Shazeer and Niki Parmar
+                   and Jakob Uszkoreit and Llion Jones
+                   and Aidan N. Gomez and {\L}ukasz Kaiser
+                   and Illia Polosukhin},
+  title         = {Attention Is All You Need},
+  booktitle     = {Advances in Neural Information Processing Systems
+                   (NeurIPS)},
+  year          = {2017},
+  pages         = {5998--6008},
+  archivePrefix = {arXiv},
+  eprint        = {1706.03762},
+  url           = {https://arxiv.org/abs/1706.03762},
+}
+
+@InProceedings{liu2021swin,
+  author        = {Ze Liu and Yutong Lin and Yue Cao and Han Hu
+                   and Yixuan Wei and Zheng Zhang and Stephen Lin
+                   and Baining Guo},
+  title         = {Swin Transformer: Hierarchical Vision Transformer
+                   Using Shifted Windows},
+  booktitle     = {Proceedings of the IEEE/CVF International Conference
+                   on Computer Vision (ICCV)},
+  year          = {2021},
+  pages         = {10012--10022},
+  archivePrefix = {arXiv},
+  eprint        = {2103.14030},
+  url           = {https://arxiv.org/abs/2103.14030},
+}
+
+% ---- Dataset ------------------------------------------------
+
+@InProceedings{dai2017scannet,
+  author        = {Angela Dai and Angel X. Chang and Manolis Savva
+                   and Maciej Halber and Thomas Funkhouser
+                   and Matthias Nie{\ss}ner},
+  title         = {{ScanNet}: Richly-Annotated 3{D} Reconstructions
+                   of Indoor Scenes},
+  booktitle     = {Proceedings of the IEEE/CVF Conference on Computer
+                   Vision and Pattern Recognition (CVPR)},
+  year          = {2017},
+  pages         = {5828--5839},
+  archivePrefix = {arXiv},
+  eprint        = {1702.04405},
+  url           = {https://arxiv.org/abs/1702.04405},
+}
+
+% ---- Simulation Platform ------------------------------------
+
+@Article{mittal2023orbit,
+  author        = {Mayank Mittal and Calvin Yu and Qinxi Yu
+                   and Jingzhou Liu and Nikita Rudin and David Hoeller
+                   and Jia Lin Yuan and Ritvik Singh and Yunrong Guo
+                   and Hammad Mazhar and Ajay Mandlekar and Buck Babich
+                   and Gavriel State and Marco Hutter and Animesh Garg},
+  title         = {{ORBIT}: A Unified Simulation Framework for
+                   Interactive Robot Learning Environments},
+  journal       = {IEEE Robotics and Automation Letters},
+  year          = {2023},
+  volume        = {8},
+  number        = {6},
+  pages         = {3740--3747},
+  archivePrefix = {arXiv},
+  eprint        = {2301.04195},
+  url           = {https://arxiv.org/abs/2301.04195},
+}
+
+% ---- Sim-to-Real --------------------------------------------
+
+@InProceedings{tobin2017domain,
+  author        = {Josh Tobin and Rachel Fong and Alex Ray
+                   and Jonas Schneider and Wojciech Zaremba
+                   and Pieter Abbeel},
+  title         = {Domain Randomization for Transferring Deep Neural
+                   Networks from Simulation to the Real World},
+  booktitle     = {IEEE/RSJ International Conference on Intelligent
+                   Robots and Systems (IROS)},
+  year          = {2017},
+  pages         = {23--30},
+  archivePrefix = {arXiv},
+  eprint        = {1703.06907},
+  url           = {https://arxiv.org/abs/1703.06907},
+}
+
+@InProceedings{zhao2020sim2real,
+  author        = {Wenshuai Zhao and Jorge Pe{\~n}a Queralta
+                   and Tomi Westerlund},
+  title         = {Sim-to-Real Transfer in Deep Reinforcement Learning
+                   for Robotics: A Survey},
+  booktitle     = {IEEE Symposium Series on Computational Intelligence
+                   (SSCI)},
+  year          = {2020},
+  pages         = {737--744},
+  archivePrefix = {arXiv},
+  eprint        = {2009.13303},
+  url           = {https://arxiv.org/abs/2009.13303},
+}

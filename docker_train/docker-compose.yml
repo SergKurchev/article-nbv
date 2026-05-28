@@ -1,0 +1,87 @@
+version: "3.8"
+
+# ============================================================
+#  NBV-with-obstacles Docker Compose
+#
+#  Services:
+#    nbv-train   — SAC training (default)
+#    nbv-eval    — Policy evaluation / comparison (profile: eval)
+#    tensorboard — TensorBoard monitor       (profile: monitoring)
+#
+#  Usage:
+#    Train SAC:   docker compose up nbv-train
+#    Evaluate:    docker compose --profile eval up nbv-eval
+#    TensorBoard: docker compose --profile monitoring up tensorboard
+# ============================================================
+
+services:
+
+  # ── SAC Training ────────────────────────────────────────────
+  nbv-train:
+    image: nbv-odin-train:latest
+    build:
+      context: ..                        # project root
+      dockerfile: docker_train/Dockerfile
+    container_name: nbv-train
+    init: true                           # tini as PID 1 → proper signal forwarding
+    stop_grace_period: 60s               # allow checkpoint on Ctrl-C / SIGTERM
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      # ODIN pretrained weights (read-only)
+      - ${WEIGHTS_DIR:-./weights}:/data/weights:ro
+      # SAC training output (checkpoints, metrics CSVs, videos)
+      - ${OUTPUT_DIR:-./output}:/workspace/output
+      # Scripts bind-mounted so they can be edited without rebuild
+      - ./scripts:/workspace/scripts:ro
+    env_file:
+      - .env
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+    shm_size: "8gb"                      # DataLoader multiprocessing
+    command: ["/workspace/scripts/train_sac.sh"]
+
+  # ── Policy Evaluation ───────────────────────────────────────
+  nbv-eval:
+    image: nbv-odin-train:latest
+    container_name: nbv-eval
+    profiles: ["eval"]
+    init: true
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      - ${WEIGHTS_DIR:-./weights}:/data/weights:ro
+      # Training output mounted read-only to load checkpoint
+      - ${OUTPUT_DIR:-./output}:/workspace/output:ro
+      # Evaluation results written here
+      - ${EVAL_OUTPUT_DIR:-./eval_output}:/workspace/eval_output
+      - ./scripts:/workspace/scripts:ro
+    env_file:
+      - .env
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+    shm_size: "4gb"
+    command: ["/workspace/scripts/evaluate.sh"]
+
+  # ── TensorBoard ─────────────────────────────────────────────
+  tensorboard:
+    image: tensorflow/tensorflow:latest
+    container_name: nbv-tensorboard
+    profiles: ["monitoring"]
+    ports:
+      - "6006:6006"
+    volumes:
+      - ${OUTPUT_DIR:-./output}:/workspace/output:ro
+    command: tensorboard --logdir=/workspace/output --host=0.0.0.0
+    restart: unless-stopped

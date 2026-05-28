@@ -1,0 +1,28 @@
+# ── Never send to Docker daemon ──────────────────────────────
+.git/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# ── Output / experiment data (large, not needed to build) ────
+kaggle_output/
+output_odin_sac/
+eval_results/
+eval_output/
+article/
+
+# ── scratch/my_odin — included explicitly via COPY, not via COPY . ──
+# (We COPY scratch/my_odin separately so it gets its own layer.
+#  Exclude everything else in scratch/ to avoid sending large files.)
+scratch/my_odin/.git/
+scratch/my_odin/__pycache__/
+scratch/my_odin/output_odin/
+scratch/my_odin/*.pyc
+
+# ── IDE / OS artifacts ────────────────────────────────────────
+.idea/
+.vscode/
+*.DS_Store
+Thumbs.db
